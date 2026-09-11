@@ -1,18 +1,16 @@
 # mise-bump-action
 
-[mise](https://mise.jdx.dev/) (`mise.toml`) で管理しているツールのバージョンを、
-[Dependabot](https://docs.github.com/en/code-security/dependabot) と同じPR体裁で自動追従させるGitHub Action。
+**English** | [日本語](README.ja.md)
 
-Dependabotの`dependabot.yml`は公式`package-ecosystem`しか受け付けず、`mise.toml`を検知できない。
-本actionは`mise`本体(`mise outdated`)にバージョン解決を委譲し、差分があったツールについて
-Dependabot風のPRを作成する。
+A GitHub Action that keeps tools managed by [mise](https://mise.jdx.dev/) (`mise.toml`) up to date, opening pull requests in the same style as [Dependabot](https://docs.github.com/en/code-security/dependabot).
 
-設計判断の背景は [.agents/docs/adr/](.agents/docs/adr/README.md)、詳細設計は
-[.agents/docs/specs/2026-09-11-mise-bump-action-design.md](.agents/docs/specs/2026-09-11-mise-bump-action-design.md) を参照。
+Dependabot's `dependabot.yml` only understands its own built-in `package-ecosystem` list and can't see `mise.toml`. This action delegates version resolution to `mise` itself (`mise outdated`) and opens a Dependabot-style pull request for every tool that's behind.
 
-## 使い方
+Design rationale lives in [.agents/docs/adr/](.agents/docs/adr/README.md); the full design doc is at [.agents/docs/specs/2026-09-11-mise-bump-action-design.md](.agents/docs/specs/2026-09-11-mise-bump-action-design.md).
 
-利用側リポジトリの`.github/workflows/`に、以下のようなreusable workflowを置く。
+## Usage
+
+Add a workflow like this to `.github/workflows/` in the repository that uses it:
 
 ```yaml
 on:
@@ -37,38 +35,37 @@ jobs:
 
 ## Inputs
 
-| input | 説明 | 既定値 |
+| input | description | default |
 |---|---|---|
-| `mise-config-path` | 対象の`mise.toml`パス。複数指定時は改行区切りの複数行文字列 | `mise.toml` |
-| `pr-strategy` | `per-tool`(ツールごとに別PR) / `single`(1PRにまとめる) | `per-tool` |
-| `labels` | 付与するラベル(カンマ区切り) | `dependencies` |
-| `base-branch` | PRのベースブランチ | リポジトリの既定ブランチ |
+| `mise-config-path` | Path to the target `mise.toml`. For multiple files, pass a newline-separated multi-line string | `mise.toml` |
+| `pr-strategy` | `per-tool` (one PR per tool) or `single` (bundle everything into one PR) | `per-tool` |
+| `labels` | Labels to apply, comma-separated | `dependencies` |
+| `base-branch` | Base branch for pull requests | the repository's default branch |
 
-`pr-strategy: single`での複数ツール一括やモノレポでの複数`mise-config-path`指定など、
-設定パターンの具体例は [examples/](examples/README.md) を参照。
+See [examples/](examples/README.md) for configuration patterns such as bundling multiple tools with `pr-strategy: single` or pointing at several `mise-config-path` values in a monorepo.
 
-## 技術スタック
+## Tech stack
 
 - Go
-- 配布形態: composite action(v0はlinux/amd64向け事前ビルドバイナリをGitHub Releaseで配布)
-- 認証: 利用側リポジトリの既定`GITHUB_TOKEN`のみ(追加のPAT不要)
+- Distribution: composite action (v0 ships a pre-built linux/amd64 binary via GitHub Releases)
+- Auth: the calling repository's default `GITHUB_TOKEN` only (no extra PAT required)
 
-## ディレクトリ構成
+## Directory structure
 
 ```
 .
-├── AGENTS.md              # プロジェクト概要(エージェント向け)
-├── CLAUDE.md              # AGENTS.md へのシンボリックリンク
-├── README.md              # このファイル
-├── examples/              # 設定パターン集(single-tool/はライブデモ、他は非実行)
+├── AGENTS.md              # Project overview (for agents)
+├── CLAUDE.md              # Symlink to AGENTS.md
+├── README.md              # This file
+├── examples/              # Configuration patterns (single-tool/ is a live demo, others are illustrative)
 └── .agents/
     └── docs/
-        ├── README.md      # ドキュメント索引
-        ├── adr/           # アーキテクチャ決定記録
-        ├── specs/         # 設計ドキュメント
-        └── plans/         # 実装計画
+        ├── README.md      # Documentation index
+        ├── adr/           # Architecture decision records
+        ├── specs/         # Design docs
+        └── plans/         # Implementation plans
 ```
 
-## ライセンス
+## License
 
 MIT
