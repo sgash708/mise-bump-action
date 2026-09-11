@@ -1273,7 +1273,9 @@ func branchName(entries []outdated.Entry) string {
 
 	h := fnv.New32a()
 	for _, e := range entries {
-		fmt.Fprintf(h, "%s@%s;", e.Name, e.Latest)
+		// hash.Hash.Write never returns an error; the check is unnecessary but
+		// silences errcheck explicitly rather than ignoring it implicitly.
+		_, _ = fmt.Fprintf(h, "%s@%s;", e.Name, e.Latest)
 	}
 	return fmt.Sprintf("mise-bump/batch-%x", h.Sum32())
 }
