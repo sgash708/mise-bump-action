@@ -1,0 +1,6 @@
+# CLAUDE.md, .claude/docs, .claude/skills are symlinks (mode 120000), not
+# regular text files (see CONTRIBUTING.md). Marking them -text keeps git
+# from ever attempting CRLF normalization on the link target string.
+CLAUDE.md -text
+.claude/docs -text
+.claude/skills -text
