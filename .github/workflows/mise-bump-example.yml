@@ -14,7 +14,7 @@ jobs:
 
       - uses: jdx/mise-action@v4
 
-      - uses: sgash708/mise-bump-action@v0.2.2
+      - uses: sgash708/mise-bump-action@v0.2.3
         with:
           mise-config-path: examples/single-tool/mise.toml
           pr-strategy: per-tool
