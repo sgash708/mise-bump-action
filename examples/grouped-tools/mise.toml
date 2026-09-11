@@ -1,0 +1,7 @@
+[tools]
+# Illustrative only (not wired to a live workflow) — shows what a mise.toml
+# with multiple outdated tools looks like when pr-strategy: single is used,
+# bundling every bump into one pull request instead of one per tool.
+# See ../README.md.
+"aqua:golangci/golangci-lint" = "2.12.2"
+"aqua:rhysd/actionlint" = "1.7.10"

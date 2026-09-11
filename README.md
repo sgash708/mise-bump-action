@@ -44,6 +44,9 @@ jobs:
 | `labels` | 付与するラベル(カンマ区切り) | `dependencies` |
 | `base-branch` | PRのベースブランチ | リポジトリの既定ブランチ |
 
+`pr-strategy: single`での複数ツール一括やモノレポでの複数`mise-config-path`指定など、
+設定パターンの具体例は [examples/](examples/README.md) を参照。
+
 ## 技術スタック
 
 - Go
@@ -57,11 +60,13 @@ jobs:
 ├── AGENTS.md              # プロジェクト概要(エージェント向け)
 ├── CLAUDE.md              # AGENTS.md へのシンボリックリンク
 ├── README.md              # このファイル
+├── examples/              # 設定パターン集(single-tool/はライブデモ、他は非実行)
 └── .agents/
     └── docs/
         ├── README.md      # ドキュメント索引
         ├── adr/           # アーキテクチャ決定記録
-        └── specs/         # 設計ドキュメント
+        ├── specs/         # 設計ドキュメント
+        └── plans/         # 実装計画
 ```
 
 ## ライセンス

@@ -1,0 +1,4 @@
+[tools]
+# Illustrative only (not wired to a live workflow). See ../../README.md for
+# how mise-config-path handles multiple files in a monorepo.
+"go:github.com/matryer/moq" = "v0.6.0"

@@ -16,5 +16,5 @@ jobs:
 
       - uses: sgash708/mise-bump-action@v0.2.0
         with:
-          mise-config-path: examples/mise.toml
+          mise-config-path: examples/single-tool/mise.toml
           pr-strategy: per-tool
