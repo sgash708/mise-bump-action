@@ -2015,6 +2015,17 @@ Global Constraintsで「テストはtable-driven」と定めていたにもか�
 
 各パッケージとも`go test ./... && golangci-lint run`が引き続き成功することを確認済み。
 
+### Task 13(実施後の追補): CI(GitHub Actions)とoctocovによるカバレッジ可視化を追加
+
+CIが未整備だった(`release.yml`はタグpush時のみ)ため、push/PRで走るCIを追加した。seiryuの`ci-naming.md`規約(ファイル名と`name:`を一致させる、`lint`は環境非依存workflowなのでsuffix無し)に合わせ、`ci.yml`(build/test/coverage/octocov)と`lint.yml`(golangci-lint/actionlint)を分離した。
+
+- `.octocov.yml`: `coverage.paths: [coverage.out]`、`codeToTestRatio`、`testExecutionTime`、PRコメント(`comment.if: is_pull_request`)、デフォルトブランチのartifact保存(`report.if: is_default_branch`)。公式README([k1LoW/octocov-action](https://github.com/k1LoW/octocov-action))のGo example構成を踏襲。
+- `.github/workflows/ci.yml`: `actions/checkout` → `actions/setup-go`(go.mod基準) → `go build` → `go test -coverprofile=coverage.out` → `k1LoW/octocov-action@v1`。octocovが要求する権限(`pull-requests: write`/`contents: read`/`actions: write`)を付与。
+- `.github/workflows/lint.yml`: `actions/checkout` → `jdx/mise-action`(mise.toml管理のgolangci-lint/actionlintをローカル開発と同一バージョンでインストール) → `actions/setup-go` → `golangci-lint run` → `actionlint .github/workflows/*.yml`。
+- `actionlint`で3ワークフロー(`ci.yml`/`lint.yml`/`release.yml`)を検証しエラー0件。
+
+**残作業(GitHubリポジトリ作成後に必須):** CI/lintを実際の「必須ゲート」として機能させるには、GitHub上でbranch protection ruleを設定し、この2 workflowをrequired status checksにする必要がある。リポジトリ未作成のため現時点では未設定。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。

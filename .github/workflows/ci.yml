@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      # To comment on PRs (octocov)
+      pull-requests: write
+      # To retrieve test step time in GitHub Actions (octocov)
+      contents: read
+      # To retrieve/store previous coverage reports as Artifacts (octocov)
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -coverprofile=coverage.out
+
+      - uses: k1LoW/octocov-action@v1
