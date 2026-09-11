@@ -13,7 +13,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sgash708/mise-bump-action/internal/runner"
 )
@@ -58,43 +60,100 @@ func NewClient(httpClient *http.Client, apiURL, token, repo string) *Client {
 	}
 }
 
+// do issues one GitHub API request, retrying exactly once if the response is
+// a rate limit (403 or 429) that includes a Retry-After header — GitHub
+// returns 403 (not just 429) for both the secondary rate limit and abuse
+// detection mechanisms. A single retry is enough for the transient limits
+// this action realistically hits (a handful of API calls per run); anything
+// beyond that is treated as a genuine failure rather than retried
+// indefinitely.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
-	var reqBody io.Reader
+	var bodyBytes []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request body for %s %s: %w", method, path, err)
 		}
-		reqBody = bytes.NewReader(b)
+		bodyBytes = b
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.apiURL+path, reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to build request for %s %s: %w", method, path, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to call github api %s %s: %w", method, path, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return &statusError{method: method, path: path, status: resp.StatusCode, body: string(b)}
-	}
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("failed to decode response from %s %s: %w", method, path, err)
+	for attempt := 0; ; attempt++ {
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
 		}
+
+		req, err := http.NewRequestWithContext(ctx, method, c.apiURL+path, reqBody)
+		if err != nil {
+			return fmt.Errorf("failed to build request for %s %s: %w", method, path, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to call github api %s %s: %w", method, path, err)
+		}
+
+		if attempt == 0 && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) {
+			if wait, ok := retryAfter(resp); ok {
+				_ = resp.Body.Close()
+				select {
+				case <-time.After(wait):
+					continue
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+		}
+
+		if resp.StatusCode >= 300 {
+			b, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return &statusError{method: method, path: path, status: resp.StatusCode, body: string(b)}
+		}
+		if out != nil {
+			err := json.NewDecoder(resp.Body).Decode(out)
+			_ = resp.Body.Close()
+			if err != nil {
+				return fmt.Errorf("failed to decode response from %s %s: %w", method, path, err)
+			}
+			return nil
+		}
+		_ = resp.Body.Close()
+		return nil
 	}
-	return nil
+}
+
+// retryAfter reports how long to wait before retrying, based on the
+// response's Retry-After header (seconds). ok is false if the header is
+// absent or unparseable, meaning the caller should not retry.
+func retryAfter(resp *http.Response) (wait time.Duration, ok bool) {
+	v := resp.Header.Get("Retry-After")
+	if v == "" {
+		return 0, false
+	}
+	seconds, err := strconv.Atoi(v)
+	if err != nil || seconds < 0 {
+		return 0, false
+	}
+	return time.Duration(seconds) * time.Second, true
+}
+
+// escapePathSegments URL-escapes each "/"-separated segment of p
+// individually, so a literal "/" in p keeps its meaning as a path separator
+// while any other special character (spaces, "#", non-ASCII, etc.) within a
+// segment is safely encoded.
+func escapePathSegments(p string) string {
+	segments := strings.Split(p, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+	return strings.Join(segments, "/")
 }
 
 // ReadFile fetches the current content and blob SHA of path at ref via the
@@ -104,7 +163,8 @@ func (c *Client) ReadFile(ctx context.Context, path, ref string) ([]byte, string
 		SHA     string `json:"sha"`
 		Content string `json:"content"`
 	}
-	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/contents/%s?ref=%s", c.repo, path, ref), nil, &out); err != nil {
+	reqPath := fmt.Sprintf("/repos/%s/contents/%s?ref=%s", c.repo, escapePathSegments(path), url.QueryEscape(ref))
+	if err := c.do(ctx, http.MethodGet, reqPath, nil, &out); err != nil {
 		return nil, "", fmt.Errorf("failed to read file %s at ref %s: %w", path, ref, err)
 	}
 
@@ -189,7 +249,7 @@ func (c *Client) branchSHA(ctx context.Context, branch string) (sha string, exis
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	err = c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/ref/heads/%s", c.repo, branch), nil, &out)
+	err = c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/ref/heads/%s", c.repo, escapePathSegments(branch)), nil, &out)
 	if isNotFound(err) {
 		return "", false, nil
 	}
@@ -200,7 +260,7 @@ func (c *Client) branchSHA(ctx context.Context, branch string) (sha string, exis
 }
 
 func (c *Client) deleteRef(ctx context.Context, branch string) error {
-	if err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/git/refs/heads/%s", c.repo, branch), nil, nil); err != nil {
+	if err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/git/refs/heads/%s", c.repo, escapePathSegments(branch)), nil, nil); err != nil {
 		return fmt.Errorf("failed to delete stale branch %s: %w", branch, err)
 	}
 	return nil
@@ -232,7 +292,7 @@ func (c *Client) putFile(ctx context.Context, path, message string, content []by
 		"sha":     sha,
 		"branch":  branch,
 	}
-	if err := c.do(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/contents/%s", c.repo, path), body, nil); err != nil {
+	if err := c.do(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/contents/%s", c.repo, escapePathSegments(path)), body, nil); err != nil {
 		return fmt.Errorf("failed to update file %s on branch %s: %w", path, branch, err)
 	}
 	return nil

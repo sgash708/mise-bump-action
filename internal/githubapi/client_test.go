@@ -14,6 +14,8 @@ import (
 func TestReadFile(t *testing.T) {
 	tests := []struct {
 		name        string
+		path        string
+		ref         string
 		handler     http.HandlerFunc
 		wantContent string
 		wantSHA     string
@@ -41,6 +43,37 @@ func TestReadFile(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			// path/ref must be escaped per path segment: an unescaped "#" or
+			// space would either be silently dropped by net/url or corrupt
+			// the request path (e.g. a "#" truncates everything after it).
+			name: "escapes special characters in path and ref",
+			path: "examples/a b#c/mise.toml",
+			ref:  "feature/a b",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				// net/http decodes percent-escapes when populating r.URL.Path,
+				// so the decoded form is what a correctly-escaped request
+				// looks like here. What this test actually guards against is
+				// the "#" being sent unescaped: an unescaped "#" is a URL
+				// fragment delimiter and never reaches the server at all, so
+				// the request would arrive truncated instead of with a wrong
+				// literal path.
+				if r.URL.Path != "/repos/sgash708/example/contents/examples/a b#c/mise.toml" {
+					http.Error(w, "unexpected path: "+r.URL.Path, http.StatusNotFound)
+					return
+				}
+				if r.URL.Query().Get("ref") != "feature/a b" {
+					http.Error(w, "unexpected ref: "+r.URL.Query().Get("ref"), http.StatusNotFound)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"sha":     "blobsha123",
+					"content": base64.StdEncoding.EncodeToString([]byte("ok")),
+				})
+			},
+			wantContent: "ok",
+			wantSHA:     "blobsha123",
+		},
 	}
 
 	for _, tt := range tests {
@@ -50,7 +83,15 @@ func TestReadFile(t *testing.T) {
 
 			c := NewClient(srv.Client(), srv.URL, "tok", "sgash708/example")
 
-			content, sha, err := c.ReadFile(context.Background(), "mise.toml", "main")
+			path := tt.path
+			if path == "" {
+				path = "mise.toml"
+			}
+			ref := tt.ref
+			if ref == "" {
+				ref = "main"
+			}
+			content, sha, err := c.ReadFile(context.Background(), path, ref)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got nil")
@@ -203,5 +244,48 @@ func TestOpenBumpPR(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDo_RetriesOnceOn429WithRetryAfter(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": "blobsha123", "content": ""})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.Client(), srv.URL, "tok", "sgash708/example")
+
+	if err := c.do(context.Background(), http.MethodGet, "/repos/sgash708/example/x", nil, &struct{}{}); err != nil {
+		t.Fatalf("do returned error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2 (one retry after 429)", attempts)
+	}
+}
+
+func TestDo_DoesNotRetryTwice(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.Client(), srv.URL, "tok", "sgash708/example")
+
+	err := c.do(context.Background(), http.MethodGet, "/repos/sgash708/example/x", nil, nil)
+	if err == nil {
+		t.Fatal("expected an error after exhausting the single retry, got nil")
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2 (initial + one retry, no more)", attempts)
 	}
 }

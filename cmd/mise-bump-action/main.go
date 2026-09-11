@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/sgash708/mise-bump-action/internal/config"
 	"github.com/sgash708/mise-bump-action/internal/githubapi"
@@ -13,13 +14,19 @@ import (
 	"github.com/sgash708/mise-bump-action/internal/runner"
 )
 
+// httpTimeout bounds every GitHub API call. Without it, http.DefaultClient
+// has no timeout at all, so a hung connection would block the whole action
+// indefinitely instead of failing with a clear error.
+const httpTimeout = 30 * time.Second
+
 func main() {
 	cfg, err := config.FromEnv(os.Getenv)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, fmt.Errorf("failed to load configuration: %w", err))
 		os.Exit(1)
 	}
-	gh := githubapi.NewClient(http.DefaultClient, cfg.APIURL, cfg.GitHubToken, cfg.Repository)
+	httpClient := &http.Client{Timeout: httpTimeout}
+	gh := githubapi.NewClient(httpClient, cfg.APIURL, cfg.GitHubToken, cfg.Repository)
 
 	if err := run(context.Background(), cfg, os.Stderr, outdated.Run, gh); err != nil {
 		fmt.Fprintln(os.Stderr, err)
