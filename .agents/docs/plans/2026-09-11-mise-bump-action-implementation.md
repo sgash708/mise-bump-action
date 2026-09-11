@@ -2002,8 +2002,18 @@ git commit -m "feat: composite action定義とリリースワークフローを�
 
 Task 2・9の実装当初、`outdated.Run`(実プロセス起動部分)と`main.go`の`run()`正常系はテストを書かずに実装しており、カバレッジがそれぞれ53.3%・14.3%に留まっていた。以下の対応でテスト可能な形に直し、TDDで検証した。
 
-- `internal/outdated/outdated_test.go`: 一時ディレクトリに実行可能な偽の`mise`シェルスクリプトを配置しPATHへ通すことで、`exec.CommandContext`の引数構築・stdout/stderr分離・非ゼロ終了時のエラーラップを実際に検証する`TestRun_InvokesMiseAndParsesItsStdout`/`TestRun_WrapsCommandFailureWithStderr`を追加。カバレッジ53.3%→83.3%。
-- `cmd/mise-bump-action/main.go`: `run()`が`outdated.Run`と`githubapi.NewClient`を直接呼んでいたためテスト不能だった。`lookupFunc`(`outdated.Run`と同じシグネチャ)と`runner.GitHub`を引数として注入できるようにシグネチャを変更し、`main()`側で実装(`outdated.Run`・`githubapi.NewClient`)を渡すよう分離。これにより「対象なしで即終了」「outdated検出→PR作成」「lookupエラー伝播」の3ケースを`runner.GitHubMock`で検証する`TestRun_ReportsNoOutdatedToolsWithoutCallingGitHub`/`TestRun_OpensPRsForOutdatedTools`/`TestRun_PropagatesLookupError`を追加。カバレッジ14.3%→64.0%(残りは`main()`自体のos.Exit経路で、プロセス境界のため通常のテストでは検証しない)。
+- `internal/outdated/outdated_test.go`: 一時ディレクトリに実行可能な偽の`mise`シェルスクリプトを配置しPATHへ通すことで、`exec.CommandContext`の引数構築・stdout/stderr分離・非ゼロ終了時のエラーラップを実際に検証する`TestRun`(サブテスト`invokes mise and parses its stdout`/`wraps command failure with stderr`)を追加。カバレッジ53.3%→83.3%。
+- `cmd/mise-bump-action/main.go`: `run()`が`outdated.Run`と`githubapi.NewClient`を直接呼んでいたためテスト不能だった。`lookupFunc`(`outdated.Run`と同じシグネチャ)と`runner.GitHub`を引数として注入できるようにシグネチャを変更し、`main()`側で実装(`outdated.Run`・`githubapi.NewClient`)を渡すよう分離。これにより「config invalid」「対象なしで即終了」「outdated検出→PR作成」「lookupエラー伝播」の4ケースを`runner.GitHubMock`で検証する`TestRun`のサブテストを追加。カバレッジ14.3%→64.0%(残りは`main()`自体のos.Exit経路で、プロセス境界のため通常のテストでは検証しない)。
+
+### Task 12(実施後の追補): 全パッケージのテストをtable-driven化
+
+Global Constraintsで「テストはtable-driven」と定めていたにもかかわらず、Task 2〜9で実際に書いたテストはシナリオごとに独立した`Test*`関数(`TestBump_PlainKey`/`TestBump_ToolNotFound`等)になっており、規約違反だった。全テストファイルを`tests := []struct{...}{...}`+`for _, tt := range tests { t.Run(tt.name, ...) }`の形に書き直した。
+
+- `internal/misetoml`・`internal/grouping`・`internal/prtext`・`internal/config`・`internal/outdated`(`TestParse`/`TestRun`)は素直にテーブル化(入出力の型が同じシナリオの集合のため)。
+- `internal/runner`・`cmd/mise-bump-action`はケースごとにモックの振る舞いが異なるため、テーブルの各行に`newGitHub func(*testing.T) *GitHubMock`(またはlookup関数)を持たせる形でテーブル化した。
+- `internal/githubapi`は元々1メソッド1ケースだったため、`TestReadFile`に非2xxエラーケース、`TestOpenBumpPR`にラベル無しでadd-labelsを呼ばないケースを追加してテーブル化(githubapiカバレッジ72.9%→78.6%への副次効果あり)。
+
+各パッケージとも`go test ./... && golangci-lint run`が引き続き成功することを確認済み。
 
 ## Self-Review 結果
 
