@@ -1,7 +1,12 @@
 name: mise-bump-example
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Preview only, do not open a pull request"
+        type: boolean
+        default: false
 
 jobs:
   mise-bump-example:
@@ -18,3 +23,4 @@ jobs:
         with:
           mise-config-path: examples/single-tool/mise.toml
           pr-strategy: per-tool
+          dry-run: ${{ inputs.dry-run }}
