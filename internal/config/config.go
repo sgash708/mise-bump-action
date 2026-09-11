@@ -17,6 +17,7 @@ type Config struct {
 	GitHubToken     string
 	Repository      string
 	APIURL          string
+	DryRun          bool
 }
 
 const defaultAPIURL = "https://api.github.com"
@@ -68,6 +69,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		apiURL = defaultAPIURL
 	}
 
+	dryRun := strings.EqualFold(getenv("INPUT_DRY_RUN"), "true")
+
 	return Config{
 		MiseConfigPaths: paths,
 		PRStrategy:      strategy,
@@ -76,6 +79,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		GitHubToken:     token,
 		Repository:      repository,
 		APIURL:          apiURL,
+		DryRun:          dryRun,
 	}, nil
 }
 

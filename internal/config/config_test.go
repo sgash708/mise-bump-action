@@ -107,6 +107,44 @@ func TestFromEnv(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "dry-run input true enables DryRun",
+			env: map[string]string{
+				"GITHUB_TOKEN":      "tok",
+				"GITHUB_REPOSITORY": "sgash708/example",
+				"GITHUB_REF_NAME":   "main",
+				"INPUT_DRY_RUN":     "true",
+			},
+			want: Config{
+				MiseConfigPaths: []string{"mise.toml"},
+				PRStrategy:      grouping.PerTool,
+				Labels:          []string{"dependencies"},
+				BaseBranch:      "main",
+				GitHubToken:     "tok",
+				Repository:      "sgash708/example",
+				APIURL:          "https://api.github.com",
+				DryRun:          true,
+			},
+		},
+		{
+			name: "dry-run input false leaves DryRun disabled",
+			env: map[string]string{
+				"GITHUB_TOKEN":      "tok",
+				"GITHUB_REPOSITORY": "sgash708/example",
+				"GITHUB_REF_NAME":   "main",
+				"INPUT_DRY_RUN":     "false",
+			},
+			want: Config{
+				MiseConfigPaths: []string{"mise.toml"},
+				PRStrategy:      grouping.PerTool,
+				Labels:          []string{"dependencies"},
+				BaseBranch:      "main",
+				GitHubToken:     "tok",
+				Repository:      "sgash708/example",
+				APIURL:          "https://api.github.com",
+				DryRun:          false,
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
-      - uses: sgash708/mise-bump-action@v0.2.3
+      - uses: sgash708/mise-bump-action@v0.2.4
         with:
           mise-config-path: mise.toml
           pr-strategy: per-tool
@@ -57,6 +57,7 @@ jobs:
 | `pr-strategy` | `per-tool`(ツールごとに別PR) / `single`(1PRにまとめる) | `per-tool` |
 | `labels` | 付与するラベル(カンマ区切り) | `dependencies` |
 | `base-branch` | PRのベースブランチ | リポジトリの既定ブランチ |
+| `dry-run` | `true`にするとブランチ/PRを作成せず、意図したPRのタイトル・本文・diffをjob summaryに出力する | `false` |
 
 ## 技術スタック
 

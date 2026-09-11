@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
+	"strings"
 
 	"github.com/sgash708/mise-bump-action/internal/config"
 	"github.com/sgash708/mise-bump-action/internal/grouping"
@@ -56,7 +58,11 @@ type GitHub interface {
 // opened, in the order their groups were processed, alongside a combined
 // error (via errors.Join) for any groups that failed. The returned error is
 // nil only if every group succeeded.
-func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh GitHub) ([]int, error) {
+//
+// When cfg.DryRun is set, no branch/pull request is created for any group;
+// instead each group's intended title, body, and file diff are written to
+// out, and the returned PR numbers slice is always empty.
+func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh GitHub, out io.Writer) ([]int, error) {
 	groups, err := grouping.Group(entries, cfg.PRStrategy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to group outdated entries: %w", err)
@@ -67,12 +73,14 @@ func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh Gi
 	var errs []error
 
 	for _, group := range groups {
-		number, err := bumpGroup(ctx, cfg, group, multiConfig, gh)
+		number, err := bumpGroup(ctx, cfg, group, multiConfig, gh, out)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		prNumbers = append(prNumbers, number)
+		if !cfg.DryRun {
+			prNumbers = append(prNumbers, number)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -82,17 +90,19 @@ func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh Gi
 }
 
 // bumpGroup reads the group's shared mise.toml, applies every entry's bump,
-// renders PR text (with best-effort enrichment), and opens the pull request.
-func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, multiConfig bool, gh GitHub) (int, error) {
+// renders PR text (with best-effort enrichment), and either opens the pull
+// request or, in dry-run mode, writes a preview of it to out.
+func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, multiConfig bool, gh GitHub, out io.Writer) (int, error) {
 	path := group.Entries[0].RelPath
 
-	content, sha, err := gh.ReadFile(ctx, path, cfg.BaseBranch)
+	before, sha, err := gh.ReadFile(ctx, path, cfg.BaseBranch)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
+	after := before
 	for _, e := range group.Entries {
-		content, err = misetoml.Bump(content, e.Name, e.Requested, e.Latest)
+		after, err = misetoml.Bump(after, e.Name, e.Requested, e.Latest)
 		if err != nil {
 			return 0, fmt.Errorf("failed to bump %s in %s: %w", e.Name, path, err)
 		}
@@ -102,11 +112,16 @@ func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, m
 	text := prtext.Build(group.Entries, multiConfig, enrichment)
 	branch := branchName(group.Entries)
 
+	if cfg.DryRun {
+		writeDryRunPreview(out, path, branch, text, before, after)
+		return 0, nil
+	}
+
 	number, err := gh.OpenBumpPR(ctx, BumpPRInput{
 		BaseBranch:    cfg.BaseBranch,
 		BranchName:    branch,
 		FilePath:      path,
-		FileContent:   content,
+		FileContent:   after,
 		FileSHA:       sha,
 		CommitMessage: text.Commit,
 		PRTitle:       text.Title,
@@ -117,6 +132,35 @@ func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, m
 		return 0, fmt.Errorf("failed to open pull request for branch %s: %w", branch, err)
 	}
 	return number, nil
+}
+
+// writeDryRunPreview renders what bumpGroup would have opened as a pull
+// request, formatted for $GITHUB_STEP_SUMMARY (rendered as Markdown in the
+// job summary UI).
+func writeDryRunPreview(out io.Writer, path, branch string, text prtext.Content, before, after []byte) {
+	_, _ = fmt.Fprintf(out, "## [dry-run] %s\n\n", path)
+	_, _ = fmt.Fprintf(out, "**Branch:** `%s`\n\n", branch)
+	_, _ = fmt.Fprintf(out, "**Title:** %s\n\n", text.Title)
+	_, _ = fmt.Fprintf(out, "%s\n\n", text.Body)
+	_, _ = fmt.Fprintf(out, "```diff\n%s```\n\n", lineDiff(before, after))
+}
+
+// lineDiff renders a minimal diff between before and after. misetoml.Bump
+// only ever replaces a version substring within an existing line — it never
+// inserts or removes lines — so before and after always have the same line
+// count, and an index-aligned comparison is a correct diff (not just an
+// approximation) for this specific domain.
+func lineDiff(before, after []byte) string {
+	beforeLines := strings.Split(string(before), "\n")
+	afterLines := strings.Split(string(after), "\n")
+
+	var b strings.Builder
+	for i, line := range beforeLines {
+		if i < len(afterLines) && line != afterLines[i] {
+			fmt.Fprintf(&b, "-%s\n+%s\n", line, afterLines[i])
+		}
+	}
+	return b.String()
 }
 
 // buildEnrichment fetches release notes/commits for each entry backed by a

@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
-      - uses: sgash708/mise-bump-action@v0.2.3
+      - uses: sgash708/mise-bump-action@v0.2.4
         with:
           mise-config-path: mise.toml
           pr-strategy: per-tool
@@ -53,6 +53,7 @@ See [examples/](examples/README.md) for details on each pattern.
 | `pr-strategy` | `per-tool` (one PR per tool) or `single` (bundle everything into one PR) | `per-tool` |
 | `labels` | Labels to apply, comma-separated | `dependencies` |
 | `base-branch` | Base branch for pull requests | the repository's default branch |
+| `dry-run` | If `true`, print the intended pull request title/body/diff to the job summary without creating any branch or pull request | `false` |
 
 ## Tech stack
 

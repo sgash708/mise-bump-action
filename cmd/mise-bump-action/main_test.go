@@ -71,13 +71,37 @@ func TestRun(t *testing.T) {
 			wantErr:       true,
 			wantErrSubstr: "mise not trusted",
 		},
+		{
+			name: "dry-run does not open PRs and reports via stderr",
+			cfg: config.Config{
+				MiseConfigPaths: []string{"mise.toml"},
+				PRStrategy:      grouping.PerTool,
+				GitHubToken:     "tok",
+				Repository:      "sgash708/example",
+				BaseBranch:      "main",
+				DryRun:          true,
+			},
+			lookup: func(ctx context.Context, repoRoot, configPath string) ([]outdated.Entry, error) {
+				return []outdated.Entry{{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"}}, nil
+			},
+			gh: &runner.GitHubMock{
+				ReadFileFunc: func(ctx context.Context, path, ref string) ([]byte, string, error) {
+					return []byte("[tools]\ngo = \"1.26.1\"\n"), "blobsha", nil
+				},
+				OpenBumpPRFunc: func(ctx context.Context, in runner.BumpPRInput) (int, error) {
+					t.Fatal("OpenBumpPR should not be called in dry-run mode")
+					return 0, nil
+				},
+			},
+			wantStderrSubstr: "[dry-run] no pull requests were created",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var stderr bytes.Buffer
+			var stderr, summary bytes.Buffer
 
-			err := run(context.Background(), tt.cfg, &stderr, tt.lookup, tt.gh)
+			err := run(context.Background(), tt.cfg, &stderr, &summary, tt.lookup, tt.gh)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got nil")

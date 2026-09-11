@@ -18,6 +18,10 @@ inputs:
     description: "Base branch for pull requests (defaults to the current ref)"
     required: false
     default: ""
+  dry-run:
+    description: "If true, print intended pull request title/body/diff to the job summary without creating any branch or pull request"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -50,6 +54,7 @@ runs:
         INPUT_PR_STRATEGY: ${{ inputs.pr-strategy }}
         INPUT_LABELS: ${{ inputs.labels }}
         INPUT_BASE_BRANCH: ${{ inputs.base-branch }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
         GITHUB_TOKEN: ${{ github.token }}
       run: "${{ github.action_path }}/mise-bump-action_linux_amd64"
 

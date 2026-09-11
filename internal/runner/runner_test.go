@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -154,8 +155,9 @@ func TestRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gh := tt.newGitHub(t)
+			var out bytes.Buffer
 
-			numbers, err := Run(context.Background(), tt.cfg, tt.entries, gh)
+			numbers, err := Run(context.Background(), tt.cfg, tt.entries, gh, &out)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got nil")
@@ -168,6 +170,80 @@ func TestRun(t *testing.T) {
 			}
 			if len(numbers) != tt.wantPRCount {
 				t.Fatalf("expected %d PR numbers, got %d: %+v", tt.wantPRCount, len(numbers), numbers)
+			}
+		})
+	}
+}
+
+func TestRun_DryRun(t *testing.T) {
+	cfg := config.Config{PRStrategy: grouping.PerTool, BaseBranch: "main", DryRun: true}
+	entries := []outdated.Entry{
+		{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"},
+	}
+	gh := &GitHubMock{
+		ReadFileFunc: func(ctx context.Context, path, ref string) ([]byte, string, error) {
+			return []byte("[tools]\ngo = \"1.26.1\"\n"), "blobsha", nil
+		},
+		OpenBumpPRFunc: func(ctx context.Context, in BumpPRInput) (int, error) {
+			t.Fatal("OpenBumpPR must not be called in dry-run mode")
+			return 0, nil
+		},
+	}
+	var out bytes.Buffer
+
+	numbers, err := Run(context.Background(), cfg, entries, gh, &out)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(numbers) != 0 {
+		t.Errorf("expected no PR numbers in dry-run mode, got %+v", numbers)
+	}
+
+	preview := out.String()
+	for _, want := range []string{
+		"mise-bump/go-1.27.0",
+		"chore(deps): bump go from 1.26.1 to 1.27.0",
+		`-go = "1.26.1"`,
+		`+go = "1.27.0"`,
+	} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("dry-run preview missing %q, got:\n%s", want, preview)
+		}
+	}
+}
+
+func TestLineDiff(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+		want   string
+	}{
+		{
+			name:   "no change yields empty diff",
+			before: "[tools]\ngo = \"1.26.1\"\n",
+			after:  "[tools]\ngo = \"1.26.1\"\n",
+			want:   "",
+		},
+		{
+			name:   "single changed line",
+			before: "[tools]\ngo = \"1.26.1\"\nnode = \"24.12.0\"\n",
+			after:  "[tools]\ngo = \"1.27.0\"\nnode = \"24.12.0\"\n",
+			want:   "-go = \"1.26.1\"\n+go = \"1.27.0\"\n",
+		},
+		{
+			name:   "multiple changed lines",
+			before: "go = \"1.26.1\"\nnode = \"24.12.0\"\n",
+			after:  "go = \"1.27.0\"\nnode = \"24.13.0\"\n",
+			want:   "-go = \"1.26.1\"\n+go = \"1.27.0\"\n-node = \"24.12.0\"\n+node = \"24.13.0\"\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lineDiff([]byte(tt.before), []byte(tt.after))
+			if got != tt.want {
+				t.Errorf("lineDiff(%q, %q) = %q, want %q", tt.before, tt.after, got, tt.want)
 			}
 		})
 	}

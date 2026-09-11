@@ -34,7 +34,22 @@ func main() {
 	httpClient := &http.Client{Timeout: httpTimeout}
 	gh := githubapi.NewClient(httpClient, cfg.APIURL, cfg.GitHubToken, cfg.Repository)
 
-	if err := run(context.Background(), cfg, os.Stderr, outdated.Run, gh); err != nil {
+	// dry-run previews are written to $GITHUB_STEP_SUMMARY when set (any
+	// composite/job step on GitHub Actions has it), so they render as
+	// Markdown in the job summary UI instead of being buried in logs.
+	// Falling back to stderr keeps `run` usable outside of GitHub Actions.
+	summary := io.Writer(os.Stderr)
+	if path := os.Getenv("GITHUB_STEP_SUMMARY"); path != "" {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to open GITHUB_STEP_SUMMARY (%v); dry-run preview will go to stderr instead\n", err)
+		} else {
+			defer func() { _ = f.Close() }()
+			summary = f
+		}
+	}
+
+	if err := run(context.Background(), cfg, os.Stderr, summary, outdated.Run, gh); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -45,7 +60,7 @@ func main() {
 // binary.
 type lookupFunc func(ctx context.Context, repoRoot, configPath string) ([]outdated.Entry, error)
 
-func run(ctx context.Context, cfg config.Config, stderr io.Writer, lookup lookupFunc, gh runner.GitHub) error {
+func run(ctx context.Context, cfg config.Config, stderr, summary io.Writer, lookup lookupFunc, gh runner.GitHub) error {
 	var allEntries []outdated.Entry
 	for _, path := range cfg.MiseConfigPaths {
 		entries, err := lookup(ctx, ".", path)
@@ -60,9 +75,14 @@ func run(ctx context.Context, cfg config.Config, stderr io.Writer, lookup lookup
 		return nil
 	}
 
-	numbers, err := runner.Run(ctx, cfg, allEntries, gh)
+	numbers, err := runner.Run(ctx, cfg, allEntries, gh, summary)
 	if err != nil {
 		return fmt.Errorf("failed to bump some outdated tools (opened %d pull request(s) successfully): %w", len(numbers), err)
+	}
+
+	if cfg.DryRun {
+		_, _ = fmt.Fprintln(stderr, "[dry-run] no pull requests were created; see the job summary for what would have been opened")
+		return nil
 	}
 
 	_, _ = fmt.Fprintf(stderr, "opened %d pull request(s): %v\n", len(numbers), numbers)
