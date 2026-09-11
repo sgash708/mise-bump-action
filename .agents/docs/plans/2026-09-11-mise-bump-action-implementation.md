@@ -1996,6 +1996,15 @@ git commit -m "feat: composite action定義とリリースワークフローを�
 
 ---
 
+---
+
+### Task 11(実施後の追補): `outdated.Run` と `main.go` の TDD未実施ギャップ解消
+
+Task 2・9の実装当初、`outdated.Run`(実プロセス起動部分)と`main.go`の`run()`正常系はテストを書かずに実装しており、カバレッジがそれぞれ53.3%・14.3%に留まっていた。以下の対応でテスト可能な形に直し、TDDで検証した。
+
+- `internal/outdated/outdated_test.go`: 一時ディレクトリに実行可能な偽の`mise`シェルスクリプトを配置しPATHへ通すことで、`exec.CommandContext`の引数構築・stdout/stderr分離・非ゼロ終了時のエラーラップを実際に検証する`TestRun_InvokesMiseAndParsesItsStdout`/`TestRun_WrapsCommandFailureWithStderr`を追加。カバレッジ53.3%→83.3%。
+- `cmd/mise-bump-action/main.go`: `run()`が`outdated.Run`と`githubapi.NewClient`を直接呼んでいたためテスト不能だった。`lookupFunc`(`outdated.Run`と同じシグネチャ)と`runner.GitHub`を引数として注入できるようにシグネチャを変更し、`main()`側で実装(`outdated.Run`・`githubapi.NewClient`)を渡すよう分離。これにより「対象なしで即終了」「outdated検出→PR作成」「lookupエラー伝播」の3ケースを`runner.GitHubMock`で検証する`TestRun_ReportsNoOutdatedToolsWithoutCallingGitHub`/`TestRun_OpensPRsForOutdatedTools`/`TestRun_PropagatesLookupError`を追加。カバレッジ14.3%→64.0%(残りは`main()`自体のos.Exit経路で、プロセス境界のため通常のテストでは検証しない)。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。
