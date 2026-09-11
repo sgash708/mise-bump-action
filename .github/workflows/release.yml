@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version-file: go.mod
 
       - name: Build linux/amd64 binary
         run: GOOS=linux GOARCH=amd64 go build -o mise-bump-action_linux_amd64 ./cmd/mise-bump-action

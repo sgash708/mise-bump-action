@@ -2024,7 +2024,17 @@ CIが未整備だった(`release.yml`はタグpush時のみ)ため、push/PRで�
 - `.github/workflows/lint.yml`: `actions/checkout` → `jdx/mise-action`(mise.toml管理のgolangci-lint/actionlintをローカル開発と同一バージョンでインストール) → `actions/setup-go` → `golangci-lint run` → `actionlint .github/workflows/*.yml`。
 - `actionlint`で3ワークフロー(`ci.yml`/`lint.yml`/`release.yml`)を検証しエラー0件。
 
-**残作業(GitHubリポジトリ作成後に必須):** CI/lintを実際の「必須ゲート」として機能させるには、GitHub上でbranch protection ruleを設定し、この2 workflowをrequired status checksにする必要がある。リポジトリ未作成のため現時点では未設定。
+**残作業(GitHubリポジトリ作成後に必須):** CI/lintを実際の「必須ゲート」として機能させるには、GitHub上でbranch protection ruleを設定し、この2 workflowをrequired status checksにする必要がある。private repoは無料プランではbranch protectionが使えない(`Upgrade to GitHub Pro or make this repository public`)ため、public化またはPro化まで保留。
+
+`sgash708/mise-bump-action`としてprivateリポジトリを作成しpush済み。`.github/dependabot.yml`(gomod + github-actions週次)と`.github/CODEOWNERS`(`* @sgash708`)も追加済み。
+
+### Task 15(実施後の追補): go.modのGoバージョンが古かった問題を修正
+
+`go mod init`実行時のローカルツールチェーン(1.23.6)がそのまま`go.mod`に残っており、2026-09時点の最新安定版(go1.27.1、`https://go.dev/dl/?mode=json`で確認)から2メジャーバージョン遅れていた。
+
+- `go.mod`の`go`ディレクティブを`1.27.1`に更新。ローカルにはgo1.27.1が未インストールだったが、Goのtoolchain自動ダウンロード機能で`go build`実行時に自動取得された。
+- `mise.toml`の`golangci-lint`を`2.9.0`→`2.13.2`に更新。go1.26でビルドされた2.9.0は「ビルドに使ったGoよりターゲットGoバージョンが新しい」というエラーで動かなくなったため(go1.27.0ビルドの2.13.2で解消)。
+- `.github/workflows/release.yml`が`go-version: "1.23"`を直書きしていたため、`ci.yml`/`lint.yml`と同じ`go-version-file: go.mod`に統一し、以後go.mod更新だけで3ワークフロー全てに反映されるようにした。
 
 ## Self-Review 結果
 
