@@ -24,9 +24,14 @@ runs:
   steps:
     - name: Download mise-bump-action binary
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        curl -sSL -o "${{ github.action_path }}/mise-bump-action" \
-          "https://github.com/sgash708/mise-bump-action/releases/download/v0.1.0/mise-bump-action_linux_amd64"
+        gh release download v0.1.1 \
+          --repo sgash708/mise-bump-action \
+          --pattern 'mise-bump-action_linux_amd64' \
+          --output "${{ github.action_path }}/mise-bump-action" \
+          --clobber
         chmod +x "${{ github.action_path }}/mise-bump-action"
 
     - name: Run mise-bump-action

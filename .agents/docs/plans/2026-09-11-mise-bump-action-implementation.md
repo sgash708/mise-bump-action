@@ -2045,6 +2045,16 @@ CIが未整備だった(`release.yml`はタグpush時のみ)ため、push/PRで�
 - `reviewdog/action-actionlint`はDockerイメージにactionlint 1.7.12を固定で同梱しておりバージョン指定不可なため、`mise.toml`側の`aqua:rhysd/actionlint`も`1.7.10`→`1.7.12`に合わせてローカル/CI間のドリフトを最小化した。
 - job権限に`checks: write`を追加(github-check reporterの必須権限)。
 
+### Task 17(実施後の追補): v0.1.0リリースと自リポジトリドッグフーディングデモ、private repo向けダウンロード修正
+
+`make release VERSION=v0.1.0`相当の手順でタグを切り、`.github/workflows/mise-bump.yml`(schedule週次 + workflow_dispatch)を追加して自リポジトリの`mise.toml`(moqが実際にv0.6.0→v0.7.1でoutdated)を対象にデモ実行した。
+
+**発覚した不具合:** `sgash708/mise-bump-action`はprivateリポジトリのため、action.ymlの`curl -sSL <release download URL>`が未認証アクセスとなり、GitHubの404("Not Found")ページ本文をそのままバイナリとしてダウンロードしてしまい`mise-bump-action: line 1: Not: command not found`で失敗した。
+
+**修正:** ダウンロード方式を`curl`から`gh release download`(`GH_TOKEN: ${{ github.token }}`で認証)に変更。GitHub-hosted runnerに`gh`がプリインストール済みのため追加セットアップ不要。`Makefile`の`release`ターゲットのsedパターンも新しい行の形に合わせて修正し、`v0.1.1`として再リリースした。
+
+**既知の制約:** この修正は「同一リポジトリ内の`GITHUB_TOKEN`で自分自身のprivate releaseを読む」ケースのみ解決する。将来的に他のprivateリポジトリからこのactionを呼び出す場合、呼び出し元の既定`GITHUB_TOKEN`は他リポジトリのreleaseにアクセスできないため、`sgash708/mise-bump-action`をpublic化するか、呼び出し元でこのリポジトリへのread権限を持つPATを用意する必要がある。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。

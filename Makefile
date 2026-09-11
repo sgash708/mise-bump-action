@@ -15,7 +15,7 @@ fmt:
 
 release:
 	@test -n "$(VERSION)" || (echo "VERSION is required, e.g. make release VERSION=v0.1.0" && exit 1)
-	sed -i.bak -E 's#(download/)v[0-9]+\.[0-9]+\.[0-9]+(/mise-bump-action_linux_amd64)#\1$(VERSION)\2#' action.yml
+	sed -i.bak -E 's#(gh release download )v[0-9]+\.[0-9]+\.[0-9]+( \\)#\1$(VERSION)\2#' action.yml
 	rm -f action.yml.bak
 	git add action.yml
 	git commit -m "chore: release $(VERSION)"

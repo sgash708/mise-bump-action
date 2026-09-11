@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
-      - uses: sgash708/mise-bump-action@v1
+      - uses: sgash708/mise-bump-action@v0.1.1
         with:
           mise-config-path: mise.toml
           pr-strategy: per-tool
