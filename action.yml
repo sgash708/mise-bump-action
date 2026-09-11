@@ -27,7 +27,7 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        gh release download v0.1.2 \
+        gh release download v0.1.3 \
           --repo sgash708/mise-bump-action \
           --pattern 'mise-bump-action_linux_amd64' \
           --output "${{ github.action_path }}/mise-bump-action" \

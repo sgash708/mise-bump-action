@@ -14,6 +14,7 @@ import (
 	"github.com/sgash708/mise-bump-action/internal/misetoml"
 	"github.com/sgash708/mise-bump-action/internal/outdated"
 	"github.com/sgash708/mise-bump-action/internal/prtext"
+	"github.com/sgash708/mise-bump-action/internal/reponame"
 )
 
 // BumpPRInput is everything needed to write one commit to a new branch and
@@ -37,6 +38,14 @@ type BumpPRInput struct {
 type GitHub interface {
 	ReadFile(ctx context.Context, path, ref string) (content []byte, sha string, err error)
 	OpenBumpPR(ctx context.Context, in BumpPRInput) (prNumber int, err error)
+	// ReleaseNotesHTML and CommitsHTML enrich a bump's PR body with the
+	// target tool's own release notes/commit history, matching Dependabot's
+	// format. Implementations return ok=false when enrichment isn't
+	// available (e.g. the tool isn't backed by a single GitHub repo, or the
+	// GitHub API call fails); callers must treat that as "omit," never as a
+	// fatal error.
+	ReleaseNotesHTML(ctx context.Context, repo, fromVersion, toVersion string) (html string, ok bool)
+	CommitsHTML(ctx context.Context, repo, fromVersion, toVersion string) (html string, ok bool)
 }
 
 // Run groups entries per cfg.PRStrategy and opens one pull request per group.
@@ -67,7 +76,8 @@ func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh Gi
 			}
 		}
 
-		text := prtext.Build(group.Entries, multiConfig)
+		enrichment := buildEnrichment(ctx, gh, group.Entries)
+		text := prtext.Build(group.Entries, multiConfig, enrichment)
 		branch := branchName(group.Entries)
 
 		number, err := gh.OpenBumpPR(ctx, BumpPRInput{
@@ -88,6 +98,29 @@ func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh Gi
 	}
 
 	return prNumbers, nil
+}
+
+// buildEnrichment fetches release notes/commits for each entry backed by a
+// resolvable GitHub repo. Entries with no resolvable repo, or for which
+// enrichment fetching fails, are simply absent from the result — enrichment
+// is best-effort and never blocks the bump.
+func buildEnrichment(ctx context.Context, gh GitHub, entries []outdated.Entry) map[string]prtext.Enrichment {
+	enrichment := make(map[string]prtext.Enrichment, len(entries))
+	for _, e := range entries {
+		repo, ok := reponame.FromToolName(e.Name)
+		if !ok {
+			continue
+		}
+		enr := prtext.Enrichment{RepoURL: "https://github.com/" + repo}
+		if html, ok := gh.ReleaseNotesHTML(ctx, repo, e.Requested, e.Latest); ok {
+			enr.ReleaseNotesHTML = html
+		}
+		if html, ok := gh.CommitsHTML(ctx, repo, e.Requested, e.Latest); ok {
+			enr.CommitsHTML = html
+		}
+		enrichment[e.Name] = enr
+	}
+	return enrichment
 }
 
 // branchName derives a deterministic branch name from a group's entries, so

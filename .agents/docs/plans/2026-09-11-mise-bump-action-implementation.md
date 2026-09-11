@@ -2067,6 +2067,24 @@ v0.1.1でデモを実行したところ、moq(v0.6.0→v0.7.1のはず)が検出
 
 この修正を`v0.1.2`としてリリースし、`mise-bump-example.yml`で実際にgolangci-lintのbump PRが開かれることを確認する。
 
+**追加で踏んだ運用上の罠(コードのバグではない):**
+
+- リポジトリ既定で「Allow GitHub Actions to create and approve pull requests」が無効だったため、`gh api PUT repos/.../actions/permissions/workflow`で`can_approve_pull_request_reviews: true`を有効化する必要があった(`pull-requests: write`権限をworkflowに書くだけでは不十分)。
+- 決定論的branch名(`mise-bump/<tool>-<version>`)の設計上、PR作成に失敗した実行の後に残ったbranchが次回実行の`git/refs`作成で`422 Reference already exists`を起こす。v0では自動リカバリせず、手動で`git/refs/heads/...`を削除して再実行する運用になる(spec記載の「PRの自動rebase等はv0スコープ外」の一部として許容)。
+
+実際にgolangci-lint 2.12.2→2.13.2のPRが`https://github.com/sgash708/mise-bump-action/pull/4`として開かれ、正しいDependabot形式(タイトル・updated-dependencies trailer・ラベル・diff)で動作することを確認し、マージした。
+
+### Task 19(実施後の追補): PR本文をDependabot本家相当のリッチ形式(release notes/commits)にする
+
+ユーザーから「PRが簡素すぎる、本家に近づけたい」との要望があり、実際のDependabot PR(release notes/commitsの`<details>`ブロック付き)相当の本文生成を追加した。
+
+- `internal/reponame`: mise tool名(`aqua:owner/repo`、`go:github.com/owner/repo/...`)からGitHubの`owner/repo`を導出する。裸のコアツール名(`go`/`node`)や非GitHubホストの`go:`ツールは解決不可としてfalseを返す。
+- `internal/githubapi/enrichment.go`: 任意の公開GitHubリポジトリ(自リポジトリに限らない)の`ReleaseNotesHTML`(releases一覧からfrom/toの範囲を抽出しDependabot形式の`<details>`に整形)と`CommitsHTML`(compare APIで差分commit一覧を取得、tagの`v`prefix有無両方を試す)を追加。どちらもAPI呼び出し失敗時は`ok=false`を返すのみで、エラーをpropagateしない(enrichmentはbest-effort)。
+- `internal/prtext`: `Build`のシグネチャに`enrichment map[string]Enrichment`を追加。enrichmentがあれば本家と同じ`Bumps [name](url) from A to B.`形式+`<details>`ブロックを、無ければ従来の`` Bumps `name` from `A` to `B`. ``にフォールバックする。
+- `internal/runner`: `GitHub`インターフェースに`ReleaseNotesHTML`/`CommitsHTML`を追加し、`Run`が各groupの処理前に`buildEnrichment`でmiseツールごとにenrichmentを取得してから`prtext.Build`に渡すよう結線。
+
+**発覚した開発環境の罠:** `go.mod`の`go`ディレクティブが`1.27.1`(2026-09時点の最新)だと、moq(v0.6.0/v0.7.1いずれも)の内部で使われている`golang.org/x/tools`のpackage loaderが`internal error: package "context" without types was imported`で落ちる。`go.mod`を一時的に`go 1.25.0`に下げるとmoqは正常に動く(生成されたmocks.goファイル自体は`go`ディレクティブの値に依存しないため、生成後に`go.mod`を`1.27.1`へ戻せば問題なくビルドできる)。mocks.go再生成が必要になったら、この手順(一時ダウングレード→moq実行→元に戻す)を踏む。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。

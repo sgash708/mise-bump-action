@@ -18,11 +18,17 @@ var _ GitHub = &GitHubMock{}
 //
 //		// make and configure a mocked GitHub
 //		mockedGitHub := &GitHubMock{
+//			CommitsHTMLFunc: func(ctx context.Context, repo string, fromVersion string, toVersion string) (string, bool) {
+//				panic("mock out the CommitsHTML method")
+//			},
 //			OpenBumpPRFunc: func(ctx context.Context, in BumpPRInput) (int, error) {
 //				panic("mock out the OpenBumpPR method")
 //			},
 //			ReadFileFunc: func(ctx context.Context, path string, ref string) ([]byte, string, error) {
 //				panic("mock out the ReadFile method")
+//			},
+//			ReleaseNotesHTMLFunc: func(ctx context.Context, repo string, fromVersion string, toVersion string) (string, bool) {
+//				panic("mock out the ReleaseNotesHTML method")
 //			},
 //		}
 //
@@ -31,14 +37,31 @@ var _ GitHub = &GitHubMock{}
 //
 //	}
 type GitHubMock struct {
+	// CommitsHTMLFunc mocks the CommitsHTML method.
+	CommitsHTMLFunc func(ctx context.Context, repo string, fromVersion string, toVersion string) (string, bool)
+
 	// OpenBumpPRFunc mocks the OpenBumpPR method.
 	OpenBumpPRFunc func(ctx context.Context, in BumpPRInput) (int, error)
 
 	// ReadFileFunc mocks the ReadFile method.
 	ReadFileFunc func(ctx context.Context, path string, ref string) ([]byte, string, error)
 
+	// ReleaseNotesHTMLFunc mocks the ReleaseNotesHTML method.
+	ReleaseNotesHTMLFunc func(ctx context.Context, repo string, fromVersion string, toVersion string) (string, bool)
+
 	// calls tracks calls to the methods.
 	calls struct {
+		// CommitsHTML holds details about calls to the CommitsHTML method.
+		CommitsHTML []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Repo is the repo argument value.
+			Repo string
+			// FromVersion is the fromVersion argument value.
+			FromVersion string
+			// ToVersion is the toVersion argument value.
+			ToVersion string
+		}
 		// OpenBumpPR holds details about calls to the OpenBumpPR method.
 		OpenBumpPR []struct {
 			// Ctx is the ctx argument value.
@@ -55,9 +78,66 @@ type GitHubMock struct {
 			// Ref is the ref argument value.
 			Ref string
 		}
+		// ReleaseNotesHTML holds details about calls to the ReleaseNotesHTML method.
+		ReleaseNotesHTML []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Repo is the repo argument value.
+			Repo string
+			// FromVersion is the fromVersion argument value.
+			FromVersion string
+			// ToVersion is the toVersion argument value.
+			ToVersion string
+		}
 	}
-	lockOpenBumpPR sync.RWMutex
-	lockReadFile   sync.RWMutex
+	lockCommitsHTML      sync.RWMutex
+	lockOpenBumpPR       sync.RWMutex
+	lockReadFile         sync.RWMutex
+	lockReleaseNotesHTML sync.RWMutex
+}
+
+// CommitsHTML calls CommitsHTMLFunc.
+func (mock *GitHubMock) CommitsHTML(ctx context.Context, repo string, fromVersion string, toVersion string) (string, bool) {
+	if mock.CommitsHTMLFunc == nil {
+		panic("GitHubMock.CommitsHTMLFunc: method is nil but GitHub.CommitsHTML was just called")
+	}
+	callInfo := struct {
+		Ctx         context.Context
+		Repo        string
+		FromVersion string
+		ToVersion   string
+	}{
+		Ctx:         ctx,
+		Repo:        repo,
+		FromVersion: fromVersion,
+		ToVersion:   toVersion,
+	}
+	mock.lockCommitsHTML.Lock()
+	mock.calls.CommitsHTML = append(mock.calls.CommitsHTML, callInfo)
+	mock.lockCommitsHTML.Unlock()
+	return mock.CommitsHTMLFunc(ctx, repo, fromVersion, toVersion)
+}
+
+// CommitsHTMLCalls gets all the calls that were made to CommitsHTML.
+// Check the length with:
+//
+//	len(mockedGitHub.CommitsHTMLCalls())
+func (mock *GitHubMock) CommitsHTMLCalls() []struct {
+	Ctx         context.Context
+	Repo        string
+	FromVersion string
+	ToVersion   string
+} {
+	var calls []struct {
+		Ctx         context.Context
+		Repo        string
+		FromVersion string
+		ToVersion   string
+	}
+	mock.lockCommitsHTML.RLock()
+	calls = mock.calls.CommitsHTML
+	mock.lockCommitsHTML.RUnlock()
+	return calls
 }
 
 // OpenBumpPR calls OpenBumpPRFunc.
@@ -133,5 +213,49 @@ func (mock *GitHubMock) ReadFileCalls() []struct {
 	mock.lockReadFile.RLock()
 	calls = mock.calls.ReadFile
 	mock.lockReadFile.RUnlock()
+	return calls
+}
+
+// ReleaseNotesHTML calls ReleaseNotesHTMLFunc.
+func (mock *GitHubMock) ReleaseNotesHTML(ctx context.Context, repo string, fromVersion string, toVersion string) (string, bool) {
+	if mock.ReleaseNotesHTMLFunc == nil {
+		panic("GitHubMock.ReleaseNotesHTMLFunc: method is nil but GitHub.ReleaseNotesHTML was just called")
+	}
+	callInfo := struct {
+		Ctx         context.Context
+		Repo        string
+		FromVersion string
+		ToVersion   string
+	}{
+		Ctx:         ctx,
+		Repo:        repo,
+		FromVersion: fromVersion,
+		ToVersion:   toVersion,
+	}
+	mock.lockReleaseNotesHTML.Lock()
+	mock.calls.ReleaseNotesHTML = append(mock.calls.ReleaseNotesHTML, callInfo)
+	mock.lockReleaseNotesHTML.Unlock()
+	return mock.ReleaseNotesHTMLFunc(ctx, repo, fromVersion, toVersion)
+}
+
+// ReleaseNotesHTMLCalls gets all the calls that were made to ReleaseNotesHTML.
+// Check the length with:
+//
+//	len(mockedGitHub.ReleaseNotesHTMLCalls())
+func (mock *GitHubMock) ReleaseNotesHTMLCalls() []struct {
+	Ctx         context.Context
+	Repo        string
+	FromVersion string
+	ToVersion   string
+} {
+	var calls []struct {
+		Ctx         context.Context
+		Repo        string
+		FromVersion string
+		ToVersion   string
+	}
+	mock.lockReleaseNotesHTML.RLock()
+	calls = mock.calls.ReleaseNotesHTML
+	mock.lockReleaseNotesHTML.RUnlock()
 	return calls
 }

@@ -19,39 +19,74 @@ type Content struct {
 	Commit string
 }
 
-// Build renders Content for a group of outdated entries. multiConfig should
-// be true when the action is configured with more than one mise-config-path,
-// so single-entry titles disambiguate which file changed.
-func Build(entries []outdated.Entry, multiConfig bool) Content {
-	if len(entries) == 1 {
-		return buildSingle(entries[0], multiConfig)
-	}
-	return buildGrouped(entries)
+// Enrichment holds pre-fetched supplementary content for a single outdated
+// entry, keyed by outdated.Entry.Name in the map passed to Build. Any zero
+// field is simply omitted from the rendered body — enrichment is optional
+// and best-effort.
+type Enrichment struct {
+	RepoURL          string
+	ReleaseNotesHTML string
+	CommitsHTML      string
 }
 
-func buildSingle(e outdated.Entry, multiConfig bool) Content {
+// Build renders Content for a group of outdated entries. multiConfig should
+// be true when the action is configured with more than one mise-config-path,
+// so single-entry titles disambiguate which file changed. enrichment may be
+// nil; entries with no corresponding map entry fall back to a plain
+// backtick-quoted bumps line.
+func Build(entries []outdated.Entry, multiConfig bool, enrichment map[string]Enrichment) Content {
+	if len(entries) == 1 {
+		return buildSingle(entries[0], multiConfig, enrichment)
+	}
+	return buildGrouped(entries, enrichment)
+}
+
+func buildSingle(e outdated.Entry, multiConfig bool, enrichment map[string]Enrichment) Content {
 	title := fmt.Sprintf("chore(deps): bump %s from %s to %s", shortName(e.Name), e.Requested, e.Latest)
 	if multiConfig {
 		title += fmt.Sprintf(" in %s", e.RelPath)
 	}
 
-	body := fmt.Sprintf("Bumps `%s` from `%s` to `%s`.", shortName(e.Name), e.Requested, e.Latest)
+	var b strings.Builder
+	b.WriteString(bumpsLine(e, enrichment[e.Name]))
+	if enr, ok := enrichment[e.Name]; ok {
+		if enr.ReleaseNotesHTML != "" {
+			b.WriteString("\n")
+			b.WriteString(enr.ReleaseNotesHTML)
+		}
+		if enr.CommitsHTML != "" {
+			b.WriteString("\n")
+			b.WriteString(enr.CommitsHTML)
+		}
+	}
+	body := b.String()
+
 	commit := title + "\n\n---\n" + buildTrailer([]outdated.Entry{e})
 
 	return Content{Title: title, Body: body, Commit: commit}
 }
 
-func buildGrouped(entries []outdated.Entry) Content {
+func buildGrouped(entries []outdated.Entry, enrichment map[string]Enrichment) Content {
 	title := fmt.Sprintf("chore(deps): bump %d mise-managed tools", len(entries))
 
 	bodyLines := make([]string, len(entries))
 	for i, e := range entries {
-		bodyLines[i] = fmt.Sprintf("- Bumps `%s` from `%s` to `%s`.", shortName(e.Name), e.Requested, e.Latest)
+		bodyLines[i] = "- " + bumpsLine(e, enrichment[e.Name])
 	}
 	body := strings.Join(bodyLines, "\n")
 	commit := title + "\n\n---\n" + buildTrailer(entries)
 
 	return Content{Title: title, Body: body, Commit: commit}
+}
+
+// bumpsLine renders the "Bumps X from A to B." line: a markdown link to the
+// tool's repo when enr.RepoURL is available (matching Dependabot's own
+// format), otherwise a plain backtick-quoted fallback.
+func bumpsLine(e outdated.Entry, enr Enrichment) string {
+	if enr.RepoURL == "" {
+		return fmt.Sprintf("Bumps `%s` from `%s` to `%s`.", shortName(e.Name), e.Requested, e.Latest)
+	}
+	return fmt.Sprintf("Bumps [%s](%s) from %s to %s.", shortName(e.Name), enr.RepoURL, e.Requested, e.Latest)
 }
 
 func buildTrailer(entries []outdated.Entry) string {

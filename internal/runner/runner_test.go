@@ -74,6 +74,49 @@ func TestRun(t *testing.T) {
 			wantPRCount: 1,
 		},
 		{
+			name: "fetches enrichment for entries backed by a resolvable github repo",
+			cfg:  config.Config{PRStrategy: "per-tool", BaseBranch: "main"},
+			entries: []outdated.Entry{
+				{Name: "aqua:golangci/golangci-lint", Requested: "2.12.2", Latest: "2.13.2", RelPath: "mise.toml"},
+				{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"},
+			},
+			newGitHub: func(t *testing.T) *GitHubMock {
+				return &GitHubMock{
+					ReadFileFunc: func(ctx context.Context, path, ref string) ([]byte, string, error) {
+						return []byte("[tools]\ngo = \"1.26.1\"\n\"aqua:golangci/golangci-lint\" = \"2.12.2\"\n"), "blobsha", nil
+					},
+					ReleaseNotesHTMLFunc: func(ctx context.Context, repo, from, to string) (string, bool) {
+						if repo != "golangci/golangci-lint" {
+							t.Errorf("ReleaseNotesHTML called with unexpected repo %q (should never be called for the \"go\" entry)", repo)
+						}
+						return "<details>release notes</details>", true
+					},
+					CommitsHTMLFunc: func(ctx context.Context, repo, from, to string) (string, bool) {
+						if repo != "golangci/golangci-lint" {
+							t.Errorf("CommitsHTML called with unexpected repo %q (should never be called for the \"go\" entry)", repo)
+						}
+						return "<details>commits</details>", true
+					},
+					OpenBumpPRFunc: func(ctx context.Context, in BumpPRInput) (int, error) {
+						if strings.Contains(in.PRTitle, "golangci-lint") {
+							if !strings.Contains(in.PRBody, "<details>release notes</details>") || !strings.Contains(in.PRBody, "<details>commits</details>") {
+								t.Errorf("expected golangci-lint PR body to contain enrichment, got %q", in.PRBody)
+							}
+							if !strings.Contains(in.PRBody, "[golangci-lint](https://github.com/golangci/golangci-lint)") {
+								t.Errorf("expected golangci-lint PR body to contain a repo link, got %q", in.PRBody)
+							}
+						} else {
+							if strings.Contains(in.PRBody, "<details>") {
+								t.Errorf("expected the \"go\" PR body to have no enrichment (not resolvable to a repo), got %q", in.PRBody)
+							}
+						}
+						return 1, nil
+					},
+				}
+			},
+			wantPRCount: 2,
+		},
+		{
 			name:    "returns partial results when a later PR creation fails",
 			cfg:     config.Config{PRStrategy: "per-tool", BaseBranch: "main"},
 			entries: twoEntries,
