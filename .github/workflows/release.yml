@@ -20,7 +20,7 @@ jobs:
           # ノートを自作するため、tag履歴を含む全履歴が必要。
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
