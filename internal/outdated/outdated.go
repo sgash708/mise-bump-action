@@ -34,16 +34,21 @@ type rawEntry struct {
 	Source    rawSource `json:"source"`
 }
 
-// Run executes `mise outdated --json -C configDir` and parses its output.
-// mise itself silently omits tools it cannot resolve (e.g. due to network
-// errors), so a successful Run only reports tools mise could actually check.
+// Run executes `mise outdated --json --bump -C configDir` and parses its
+// output. `--bump` is required even for exact version pins: without it, mise
+// only reports newer versions within the same version "family" as the pin
+// (e.g. pinning "2.12.2" only surfaces newer 2.12.x patches, never 2.13.0),
+// so a plain `mise outdated` silently misses most real upgrades. mise itself
+// silently omits tools it cannot resolve (e.g. due to network errors or
+// known go-install backend limitations), so a successful Run only reports
+// tools mise could actually check.
 func Run(ctx context.Context, repoRoot, configDir string) ([]Entry, error) {
 	repoRootAbs, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve repo root %q: %w", repoRoot, err)
 	}
 
-	cmd := exec.CommandContext(ctx, "mise", "outdated", "--json", "-C", configDir)
+	cmd := exec.CommandContext(ctx, "mise", "outdated", "--json", "--bump", "-C", configDir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

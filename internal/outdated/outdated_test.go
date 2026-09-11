@@ -107,7 +107,7 @@ func TestRun(t *testing.T) {
 			name: "invokes mise and parses its stdout",
 			script: func(repoRoot string) string {
 				return fmt.Sprintf(`#!/bin/sh
-if [ "$1" != "outdated" ] || [ "$2" != "--json" ] || [ "$3" != "-C" ]; then
+if [ "$1" != "outdated" ] || [ "$2" != "--json" ] || [ "$3" != "--bump" ] || [ "$4" != "-C" ]; then
   echo "unexpected args: $@" >&2
   exit 1
 fi

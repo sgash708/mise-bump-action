@@ -1,12 +1,10 @@
-name: mise-bump
+name: mise-bump-example
 
 on:
-  schedule:
-    - cron: "0 3 * * 1"
   workflow_dispatch: {}
 
 jobs:
-  mise-bump:
+  mise-bump-example:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,5 +16,5 @@ jobs:
 
       - uses: sgash708/mise-bump-action@v0.1.2
         with:
-          mise-config-path: mise.toml
+          mise-config-path: examples/mise.toml
           pr-strategy: per-tool

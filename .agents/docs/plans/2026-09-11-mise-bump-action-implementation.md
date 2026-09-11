@@ -2055,6 +2055,18 @@ CIが未整備だった(`release.yml`はタグpush時のみ)ため、push/PRで�
 
 **既知の制約:** この修正は「同一リポジトリ内の`GITHUB_TOKEN`で自分自身のprivate releaseを読む」ケースのみ解決する。将来的に他のprivateリポジトリからこのactionを呼び出す場合、呼び出し元の既定`GITHUB_TOKEN`は他リポジトリのreleaseにアクセスできないため、`sgash708/mise-bump-action`をpublic化するか、呼び出し元でこのリポジトリへのread権限を持つPATを用意する必要がある。
 
+### Task 18(実施後の追補): `--bump`フラグ漏れによる重大な検出漏れバグと、examples/の追加
+
+v0.1.1でデモを実行したところ、moq(v0.6.0→v0.7.1のはず)が検出されず`no outdated mise-managed tools found`になった。調査の結果、2つの独立した問題が判明した。
+
+**問題1(自分のコードのバグ、修正済み):** `mise outdated --json`は、`--bump`(`-l`)を付けないと厳密ピンでも「requestedと同じバージョン系列内」でしか比較しない。例えば`golangci-lint = "2.12.2"`だと`--bump`無しでは`latest`も`"2.12.2"`のまま(2.13.2は見つからない)。`mise outdated --help`の`-l, --bump`説明("node = '20'"の例)を読んだ時点でこの挙動自体は把握していたが、「厳密ピンなら影響しない」という誤った前提でTask 2では`--bump`を付けていなかった。実際には厳密ピンでも同じ系列内(パッチのみならず巷い意味でのマイナー系列)に閉じ込められるため、`--bump`を付けないと実質ほとんどの更新を検出できない重大なバグだった。`internal/outdated.Run`のコマンドに`--bump`を追加し、テストの偽`mise`スクリプトも引数チェックを更新して修正を検証した。
+
+**問題2(mise本体の既知のバグ、対応不可):** `go:github.com/matryer/moq`は`--bump`を付けても`mise WARN Error getting latest version for go:github.com/matryer/moq: no latest version found`というエラーで検出されない。これは`go install`バックエンドの既知の制約([jdx/mise#2766](https://github.com/jdx/mise/issues/2766)ほか複数のdiscussionで報告されている`go list -m -versions`まわりのバグ)であり、ADR 0001の「mise CLIに解決を委譲する」方針上、mise-bump-action側では回避できない。aquaバックエンド(golangci-lint/actionlint)は問題1修正後は正しく動作することを確認済み。
+
+**examples/の追加:** 自分自身の開発ツール用`mise.toml`(golangci-lintを2.13.2に固定=常に最新)を意図的に古いバージョンに書き換えてデモすると、CI自体のlintが壊れる(古いgolangci-lintビルドが新しいgo.modをターゲットできないエラー)ため、デモ専用の`examples/mise.toml`(golangci-lintを意図的に2.12.2へ1バージョン下げてピン)と`.github/workflows/mise-bump-example.yml`(workflow_dispatchのみ、`mise-config-path: examples/mise.toml`)を分離して追加した。実運用の`.github/workflows/mise-bump.yml`(自リポジトリの本物の`mise.toml`を対象、週次+手動)はそのまま残す。
+
+この修正を`v0.1.2`としてリリースし、`mise-bump-example.yml`で実際にgolangci-lintのbump PRが開かれることを確認する。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。
