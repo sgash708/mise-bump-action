@@ -1,5 +1,11 @@
 name: lint
 
+# Note: on a pull_request run from a fork, GitHub always forces GITHUB_TOKEN
+# to read-only regardless of the `permissions:` block below (a platform
+# security restriction, not something this workflow controls). The
+# reviewdog steps' github-check reporter then fails to post checks. This
+# repo has no external fork contributors today, so it's accepted as a
+# documented limitation rather than worked around with pull_request_target.
 on:
   push:
     branches:
@@ -13,24 +19,24 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
 
       - name: golangci-lint
         run: golangci-lint run
 
-      - uses: reviewdog/action-actionlint@v1
+      - uses: reviewdog/action-actionlint@d290e336d5a743810aef4404f757dc862276d2ae # v1
         with:
           reporter: github-check
           fail_level: error
           filter_mode: nofilter
 
-      - uses: reviewdog/action-yamllint@v1
+      - uses: reviewdog/action-yamllint@de68272fdca5f2a961fb309e0d2e13c2eb186d9e # v1
         with:
           reporter: github-check
           fail_level: error

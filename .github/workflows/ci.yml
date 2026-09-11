@@ -1,5 +1,11 @@
 name: ci
 
+# Note: on a pull_request run from a fork, GitHub always forces GITHUB_TOKEN
+# to read-only regardless of the `permissions:` block below (a platform
+# security restriction, not something this workflow controls). octocov's
+# PR-comment step then silently has nothing to post with. This repo has no
+# external fork contributors today, so it's accepted as a documented
+# limitation rather than worked around with pull_request_target.
 on:
   push:
     branches:
@@ -17,9 +23,9 @@ jobs:
       # To retrieve/store previous coverage reports as Artifacts (octocov)
       actions: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
 
@@ -29,4 +35,4 @@ jobs:
       - name: Test
         run: go test ./... -coverprofile=coverage.out
 
-      - uses: k1LoW/octocov-action@v1
+      - uses: k1LoW/octocov-action@a167dc0dee441b7ffc45e1b862ab55ec0d87f278 # v1

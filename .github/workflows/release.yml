@@ -15,7 +15,7 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # `--generate-notes`(PRベースの集計)は、mainへ直pushする本リポジトリの
           # 運用だと空またはbotのPRしか拾わず実態を反映しない(ADR未記載、plan文書の
@@ -23,7 +23,7 @@ jobs:
           # ノートを自作するため、tag履歴を含む全履歴が必要。
           fetch-depth: 0
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
 
