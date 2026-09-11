@@ -1,0 +1,18 @@
+{
+  "aqua:golangci/golangci-lint": {
+    "name": "aqua:golangci/golangci-lint",
+    "requested": "2.9.0",
+    "current": null,
+    "bump": null,
+    "latest": "2.9.0",
+    "source": { "type": "mise.toml", "path": "/repo/mise.toml" }
+  },
+  "go:github.com/matryer/moq": {
+    "name": "go:github.com/matryer/moq",
+    "requested": "v0.6.0",
+    "current": null,
+    "bump": null,
+    "latest": "0.6.0",
+    "source": { "type": "mise.toml", "path": "/repo/mise.toml" }
+  }
+}
