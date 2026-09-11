@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -181,14 +182,24 @@ func (c *Client) ReadFile(ctx context.Context, path, ref string) ([]byte, string
 // version of the same tool) is closed with a comment pointing at the new PR.
 //
 // A match under one of in.LegacyBranchNames additionally requires the found
-// PR's title to equal in.PRTitle. Legacy branch names are built from
-// sanitize(name) alone, without the fingerprint the current scheme mixes in
-// (see runner.legacyBranchNames) — two different tool names can sanitize to
-// the identical legacy branch name, so a name-only match there can point at
-// a different tool's PR entirely. The title (unchanged in format since
-// v1.0.0) is the same string runner regenerates for this exact tool and
-// version, so requiring it to match rejects that false positive (ADR 0018).
-// This is a mitigation, not a guarantee: two different tools sharing both a
+// PR's title to look like this exact tool bumped to this exact target
+// version (see bumpTitleMatches), checked against in.LegacyMatchName/
+// in.LegacyMatchVersion rather than an exact in.PRTitle comparison. Legacy
+// branch names are built from sanitize(name) alone, without the fingerprint
+// the current scheme mixes in (see runner.legacyBranchNames) — two different
+// tool names can sanitize to the identical legacy branch name, so a
+// name-only match there can point at a different tool's PR entirely.
+// bumpTitleMatches rejects that false positive while still matching a PR
+// whose title has drifted from a byte-for-byte in.PRTitle comparison in the
+// two ways that happen without anyone touching the PR — its "from" version
+// changed after a manual bump, or mise-config-path's entry count changed
+// (toggling the " in <path>" suffix) — either of which would otherwise make
+// a real match look like a new bump and resurrect a PR that was already
+// closed (ADR 0019). A title edited by hand into some other shape is not
+// matched; the fixed "bump <name> from " / " to <version>" anchors that
+// keep a same-substring tool name (e.g. "bar" vs. "foo-bar") from
+// colliding (ADR 0019) require that literal surrounding text. This is a
+// mitigation, not a guarantee: two different tools sharing both a
 // mise.jdx.dev shortName and a target version could still collide. Legacy
 // branch name support is planned for removal in the next major version
 // (README "Upgrading"), at which point this whole path goes away.
@@ -203,22 +214,24 @@ func (c *Client) OpenBumpPR(ctx context.Context, in runner.BumpPRInput) (int, bo
 		if err != nil {
 			return 0, false, err
 		}
-		if exists && title == in.PRTitle {
+		if exists && bumpTitleMatches(title, in.LegacyMatchName, in.LegacyMatchVersion) {
 			return number, false, nil
 		}
 	}
 
-	if _, closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, in.BranchName); err != nil {
+	if closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, in.BranchName, matchAnyTitle); err != nil {
 		return 0, false, err
 	} else if closed {
 		return 0, false, runner.ErrClosedPreviously
 	}
 	for _, branch := range in.LegacyBranchNames {
-		title, closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, branch)
+		closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, branch, func(title string) bool {
+			return bumpTitleMatches(title, in.LegacyMatchName, in.LegacyMatchVersion)
+		})
 		if err != nil {
 			return 0, false, err
 		}
-		if closed && title == in.PRTitle {
+		if closed {
 			return 0, false, runner.ErrClosedPreviously
 		}
 	}
@@ -275,10 +288,19 @@ func (c *Client) findOpenPR(ctx context.Context, base, branch string) (number in
 	return out[0].Number, out[0].Title, true, nil
 }
 
-// findClosedUnmergedPR reports whether a pull request from branch into base
-// was previously closed without being merged (runner.ErrClosedPreviously).
-// title is that PR's title; see findOpenPR.
-func (c *Client) findClosedUnmergedPR(ctx context.Context, base, branch string) (title string, closed bool, err error) {
+// matchAnyTitle is the "accept any title" predicate for findClosedUnmergedPR,
+// used when the caller doesn't need to distinguish which PR under a branch
+// name matched (i.e. BranchName itself, not a LegacyBranchNames entry).
+func matchAnyTitle(string) bool { return true }
+
+// findClosedUnmergedPR reports whether any pull request from branch into
+// base was previously closed without being merged (runner.ErrClosedPreviously)
+// and whose title satisfies matches. A branch can have more than one closed
+// PR across its history (reopened, closed again, etc.); every one is
+// checked against matches rather than stopping at the first, so a
+// non-matching closed PR earlier in the list can't hide a matching one
+// later in it (ADR 0019).
+func (c *Client) findClosedUnmergedPR(ctx context.Context, base, branch string, matches func(title string) bool) (closed bool, err error) {
 	owner, _, _ := strings.Cut(c.repo, "/")
 	var out []struct {
 		Title    string  `json:"title"`
@@ -287,14 +309,40 @@ func (c *Client) findClosedUnmergedPR(ctx context.Context, base, branch string) 
 	path := fmt.Sprintf("/repos/%s/pulls?state=closed&base=%s&head=%s:%s",
 		c.repo, url.QueryEscape(base), url.QueryEscape(owner), url.QueryEscape(branch))
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return "", false, fmt.Errorf("failed to check for a previously closed pull request for branch %s: %w", branch, err)
+		return false, fmt.Errorf("failed to check for a previously closed pull request for branch %s: %w", branch, err)
 	}
 	for _, pr := range out {
-		if pr.MergedAt == nil {
-			return pr.Title, true, nil
+		if pr.MergedAt == nil && matches(pr.Title) {
+			return true, nil
 		}
 	}
-	return "", false, nil
+	return false, nil
+}
+
+// bumpTitleMatches reports whether title looks like the pull request
+// mise-bump-action would open for toolName bumped to targetVersion,
+// tolerating a different "from" version, the optional " in <path>" suffix,
+// and other manual edits elsewhere in the title (ADR 0019) — unlike an exact
+// in.PRTitle comparison, which breaks the moment any of those differ from
+// when the PR was originally opened.
+//
+// toolName is anchored between the title's fixed "bump " and " from "
+// (prtext.Build's format), not matched as a bare \b-delimited word: "-" is
+// not a word character to Go's regexp package, so two ShortNames that
+// differ only by "-" versus "/" in the original tool name — exactly the
+// pair legacy branch names can collide on (ADR 0018) — would otherwise
+// still match each other (e.g. toolName "bar" would match a title bumping
+// "foo-bar"). Anchoring on the surrounding literal text of the title format
+// instead requires an exact token match. targetVersion is anchored the same
+// way, between " to " and either " in " (the multi-config suffix) or the
+// end of the title.
+func bumpTitleMatches(title, toolName, targetVersion string) bool {
+	if toolName == "" || targetVersion == "" {
+		return false
+	}
+	nameRe := regexp.MustCompile(`bump ` + regexp.QuoteMeta(toolName) + ` from `)
+	versionRe := regexp.MustCompile(` to ` + regexp.QuoteMeta(targetVersion) + `(?: in |$)`)
+	return nameRe.MatchString(title) && versionRe.MatchString(title)
 }
 
 // closeSupersededPRs closes every other open PR into base whose branch

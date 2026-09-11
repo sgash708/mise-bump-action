@@ -45,6 +45,19 @@ type BumpPRInput struct {
 	// under BranchName, so renaming the scheme doesn't forget PRs opened
 	// under the old one (ADR 0017).
 	LegacyBranchNames []string
+	// LegacyMatchName and LegacyMatchVersion identify this exact bump (short
+	// tool name + target version) independent of PRTitle's exact wording.
+	// Implementations use them, not a raw PRTitle comparison, to decide
+	// whether a PR found under a LegacyBranchNames entry is this bump: the
+	// title of a PR opened weeks ago also encodes the "from" version at the
+	// time, which changes if the pin was bumped manually since, and gains or
+	// loses an " in <path>" suffix if mise-config-path's entry count changed
+	// — either would make an exact-title comparison miss a match that is
+	// otherwise this exact tool at this exact target version, resurrecting a
+	// bump that was already closed (ADR 0019). Empty for grouped bumps, same
+	// as LegacyBranchNames.
+	LegacyMatchName    string
+	LegacyMatchVersion string
 }
 
 // ErrClosedPreviously is returned by GitHub.OpenBumpPR when a pull request
@@ -245,17 +258,19 @@ func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, m
 	}
 
 	number, created, err := gh.OpenBumpPR(ctx, BumpPRInput{
-		BaseBranch:        cfg.BaseBranch,
-		BranchName:        branch,
-		BranchPrefix:      branchPrefix(bumped),
-		LegacyBranchNames: legacyBranchNames(bumped),
-		FilePath:          path,
-		FileContent:       after,
-		FileSHA:           sha,
-		CommitMessage:     text.Commit,
-		PRTitle:           text.Title,
-		PRBody:            text.Body,
-		Labels:            cfg.Labels,
+		BaseBranch:         cfg.BaseBranch,
+		BranchName:         branch,
+		BranchPrefix:       branchPrefix(bumped),
+		LegacyBranchNames:  legacyBranchNames(bumped),
+		LegacyMatchName:    legacyMatchName(bumped),
+		LegacyMatchVersion: legacyMatchVersion(bumped),
+		FilePath:           path,
+		FileContent:        after,
+		FileSHA:            sha,
+		CommitMessage:      text.Commit,
+		PRTitle:            text.Title,
+		PRBody:             text.Body,
+		Labels:             cfg.Labels,
 	})
 	if errors.Is(err, ErrClosedPreviously) {
 		_, _ = fmt.Fprintf(out, "## [skipped] %s\n\nA pull request for **%s** was previously closed without merging; not reopening it.\n\n", path, text.Title)
@@ -378,6 +393,24 @@ func legacyBranchNames(entries []outdated.Entry) []string {
 		// v1.5.0
 		fmt.Sprintf("%s%s_%s", BranchNamespace, sanitize(e.Name), sanitize(e.Latest)),
 	}
+}
+
+// legacyMatchName and legacyMatchVersion give BumpPRInput.LegacyMatchName/
+// LegacyMatchVersion for a single-entry group; both empty for a grouped
+// bump, since LegacyBranchNames is already empty there too (see
+// legacyBranchNames).
+func legacyMatchName(entries []outdated.Entry) string {
+	if len(entries) != 1 {
+		return ""
+	}
+	return prtext.ShortName(entries[0].Name)
+}
+
+func legacyMatchVersion(entries []outdated.Entry) string {
+	if len(entries) != 1 {
+		return ""
+	}
+	return entries[0].Latest
 }
 
 // nameFingerprint returns an 8-hex-character fingerprint of name, mixed into

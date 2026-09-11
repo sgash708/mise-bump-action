@@ -11,3 +11,10 @@
 # Build artifacts
 /bin/
 /mise-bump-action
+
+# claude-mem auto-generates a per-directory CLAUDE.md scratch file (Recent
+# Activity context) as a side effect of coding sessions; it's not part of
+# this project's source. The repo root's own CLAUDE.md (a symlink to
+# AGENTS.md, tracked deliberately) is exempted.
+**/CLAUDE.md
+!/CLAUDE.md

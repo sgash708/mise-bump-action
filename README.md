@@ -122,12 +122,18 @@ before v1.6.0, close them once after upgrading; every pull request opened
 from now on uses the current format consistently.
 
 Recognizing a pull request under an older branch-name format also requires
-its title to match exactly, to reject a same-named-but-different tool that
-happens to collide under the old, fingerprint-less format (ADR 0018). This
-compatibility path (`LegacyBranchNames`) is scaffolding for the migration
-above, not a permanent feature: it will be removed entirely in the next
-major version, at which point only the current branch-name format is
-recognized.
+its title to identify the same tool and target version, to reject a
+same-named-but-different tool that happens to collide under the old,
+fingerprint-less format (ADR 0018, 0019). This was originally an exact
+title match, but a title also encodes the "from" version at bump time and
+an optional `mise-config-path`-count suffix — either of which changes (a
+manual bump applied since, or a `mise-config-path` count change) made an
+exact match miss a real match and resurrect a bump that had already been
+closed; ADR 0019 fixed this by matching on tool name + target version
+instead. This compatibility path (`LegacyBranchNames`) is scaffolding for
+the migration above, not a permanent feature: it will be removed entirely
+in the next major version, at which point only the current branch-name
+format is recognized.
 
 ## Limitations
 

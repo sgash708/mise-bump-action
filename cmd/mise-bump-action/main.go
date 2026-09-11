@@ -28,9 +28,29 @@ var version = "dev"
 func main() {
 	fmt.Fprintf(os.Stderr, "mise-bump-action %s\n", version)
 
+	// $GITHUB_OUTPUT is how a composite action step exposes step outputs
+	// (action.yml wires them up as `pr-numbers`/`opened-count`). Absent
+	// outside GitHub Actions, in which case outputs are simply discarded.
+	// Opened before config.FromEnv (and before any other failure path) so
+	// that ADR 0015's "opened-count/pr-numbers are always set" guarantee
+	// also covers a configuration error — a consumer workflow step reading
+	// them under `if: always()` must see "0", never an unset/empty value,
+	// regardless of which step failed.
+	output := io.Writer(io.Discard)
+	if path := os.Getenv("GITHUB_OUTPUT"); path != "" {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to open GITHUB_OUTPUT (%v); outputs will not be set\n", err)
+		} else {
+			defer func() { _ = f.Close() }()
+			output = f
+		}
+	}
+
 	cfg, err := config.FromEnv(os.Getenv)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, fmt.Errorf("failed to load configuration: %w", err))
+		writeOutputs(output, nil)
 		os.Exit(1)
 	}
 	httpClient := &http.Client{Timeout: httpTimeout}
@@ -48,20 +68,6 @@ func main() {
 		} else {
 			defer func() { _ = f.Close() }()
 			summary = f
-		}
-	}
-
-	// $GITHUB_OUTPUT is how a composite action step exposes step outputs
-	// (action.yml wires them up as `pr-numbers`/`opened-count`). Absent
-	// outside GitHub Actions, in which case outputs are simply discarded.
-	output := io.Writer(io.Discard)
-	if path := os.Getenv("GITHUB_OUTPUT"); path != "" {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to open GITHUB_OUTPUT (%v); outputs will not be set\n", err)
-		} else {
-			defer func() { _ = f.Close() }()
-			output = f
 		}
 	}
 

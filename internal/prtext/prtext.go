@@ -71,7 +71,7 @@ func truncateBody(body string) string {
 }
 
 func buildSingle(e outdated.Entry, multiConfig bool, enrichment map[string]Enrichment) Content {
-	title := fmt.Sprintf("chore(deps): bump %s from %s to %s", shortName(e.Name), e.Requested, e.Latest)
+	title := fmt.Sprintf("chore(deps): bump %s from %s to %s", ShortName(e.Name), e.Requested, e.Latest)
 	if multiConfig {
 		title += fmt.Sprintf(" in %s", e.RelPath)
 	}
@@ -113,25 +113,27 @@ func buildGrouped(entries []outdated.Entry, enrichment map[string]Enrichment) Co
 // format), otherwise a plain backtick-quoted fallback.
 func bumpsLine(e outdated.Entry, enr Enrichment) string {
 	if enr.RepoURL == "" {
-		return fmt.Sprintf("Bumps `%s` from `%s` to `%s`.", shortName(e.Name), e.Requested, e.Latest)
+		return fmt.Sprintf("Bumps `%s` from `%s` to `%s`.", ShortName(e.Name), e.Requested, e.Latest)
 	}
-	return fmt.Sprintf("Bumps [%s](%s) from %s to %s.", shortName(e.Name), enr.RepoURL, e.Requested, e.Latest)
+	return fmt.Sprintf("Bumps [%s](%s) from %s to %s.", ShortName(e.Name), enr.RepoURL, e.Requested, e.Latest)
 }
 
 func buildTrailer(entries []outdated.Entry) string {
 	var b strings.Builder
 	b.WriteString("updated-dependencies:\n")
 	for _, e := range entries {
-		fmt.Fprintf(&b, "- dependency-name: %s\n  dependency-version: %s\n  dependency-type: direct:production\n", shortName(e.Name), e.Latest)
+		fmt.Fprintf(&b, "- dependency-name: %s\n  dependency-version: %s\n  dependency-type: direct:production\n", ShortName(e.Name), e.Latest)
 	}
 	b.WriteString("...")
 	return b.String()
 }
 
-// shortName strips the mise backend prefix (e.g. "aqua:owner/repo" or
+// ShortName strips the mise backend prefix (e.g. "aqua:owner/repo" or
 // "go:module/path") down to the trailing path segment, so PR text reads
 // naturally (e.g. "golangci-lint" instead of "aqua:golangci/golangci-lint").
-func shortName(name string) string {
+// Exported so runner can derive the same identifier for legacy-PR title
+// matching (see runner.legacyMatchName).
+func ShortName(name string) string {
 	if idx := strings.LastIndex(name, "/"); idx != -1 {
 		return name[idx+1:]
 	}

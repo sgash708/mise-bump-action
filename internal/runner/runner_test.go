@@ -321,6 +321,12 @@ func TestRun_PassesLegacyBranchNamesForASingleEntryGroup(t *testing.T) {
 					t.Errorf("LegacyBranchNames[%d] = %q, want %q", i, in.LegacyBranchNames[i], want[i])
 				}
 			}
+			if in.LegacyMatchName != "go" {
+				t.Errorf("LegacyMatchName = %q, want %q", in.LegacyMatchName, "go")
+			}
+			if in.LegacyMatchVersion != "1.27.0" {
+				t.Errorf("LegacyMatchVersion = %q, want %q", in.LegacyMatchVersion, "1.27.0")
+			}
 			return 1, true, nil
 		},
 	}

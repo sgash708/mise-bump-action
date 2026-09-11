@@ -235,21 +235,23 @@ func newBumpPRMux(t *testing.T, calls *[]string, opts bumpPRMuxOpts) *http.Serve
 
 func TestOpenBumpPR(t *testing.T) {
 	tests := []struct {
-		name              string
-		labels            []string
-		branchPrefix      string
-		legacyBranchNames []string
-		openPRs           []map[string]int
-		closedPRs         []closedPRStub
-		openPRsByHead     map[string][]openPRStub
-		closedPRsByHead   map[string][]closedPRStub
-		branchExists      bool
-		otherOpenPRs      []openPRRef
-		wantCalls         []string
-		wantNumber        int
-		wantCreated       bool
-		wantErr           error
-		wantErrSubstr     string
+		name               string
+		labels             []string
+		branchPrefix       string
+		legacyBranchNames  []string
+		legacyMatchName    string
+		legacyMatchVersion string
+		openPRs            []map[string]int
+		closedPRs          []closedPRStub
+		openPRsByHead      map[string][]openPRStub
+		closedPRsByHead    map[string][]closedPRStub
+		branchExists       bool
+		otherOpenPRs       []openPRRef
+		wantCalls          []string
+		wantNumber         int
+		wantCreated        bool
+		wantErr            error
+		wantErrSubstr      string
 	}{
 		{
 			name:        "calls branch, commit, PR, and labels in order",
@@ -319,8 +321,10 @@ func TestOpenBumpPR(t *testing.T) {
 			// A branch-naming scheme change must not forget a PR opened
 			// under the old scheme: it's still found via LegacyBranchNames,
 			// and no new branch/PR is created (ADR 0017).
-			name:              "finds an existing open PR under a legacy branch name",
-			legacyBranchNames: []string{"mise-bump/go-1.27.0-legacy"},
+			name:               "finds an existing open PR under a legacy branch name",
+			legacyBranchNames:  []string{"mise-bump/go-1.27.0-legacy"},
+			legacyMatchName:    "go",
+			legacyMatchVersion: "1.27.0",
 			openPRsByHead: map[string][]openPRStub{
 				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 77, Title: "chore(deps): bump go from 1.26.1 to 1.27.0"}},
 			},
@@ -330,8 +334,10 @@ func TestOpenBumpPR(t *testing.T) {
 		{
 			// Same as above, but the legacy PR was closed without merging:
 			// still must not reopen it as a "new" bump under the new name.
-			name:              "returns ErrClosedPreviously for a bump previously closed under a legacy branch name",
-			legacyBranchNames: []string{"mise-bump/go-1.27.0-legacy"},
+			name:               "returns ErrClosedPreviously for a bump previously closed under a legacy branch name",
+			legacyBranchNames:  []string{"mise-bump/go-1.27.0-legacy"},
+			legacyMatchName:    "go",
+			legacyMatchVersion: "1.27.0",
 			closedPRsByHead: map[string][]closedPRStub{
 				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 7, Title: "chore(deps): bump go from 1.26.1 to 1.27.0", MergedAt: nil}},
 			},
@@ -342,18 +348,96 @@ func TestOpenBumpPR(t *testing.T) {
 		{
 			// legacyBranchNames is built from sanitize(name) alone (no
 			// fingerprint), so a different tool's PR can share the exact
-			// legacy branch name (ADR 0018). A title mismatch must be
-			// treated as "not this bump," not as an existing match — the
-			// bump proceeds to open its own new PR instead of silently
-			// adopting someone else's.
-			name:              "does not match a legacy branch name whose PR title belongs to a different tool",
-			legacyBranchNames: []string{"mise-bump/go-1.27.0-legacy"},
+			// legacy branch name (ADR 0018). A title whose tool name doesn't
+			// match must be treated as "not this bump," not as an existing
+			// match — the bump proceeds to open its own new PR instead of
+			// silently adopting someone else's.
+			name:               "does not match a legacy branch name whose PR title belongs to a different tool",
+			legacyBranchNames:  []string{"mise-bump/go-1.27.0-legacy"},
+			legacyMatchName:    "django",
+			legacyMatchVersion: "1.27.0",
 			openPRsByHead: map[string][]openPRStub{
 				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 88, Title: "chore(deps): bump foo-bar from 1.26.1 to 1.27.0"}},
 			},
 			wantCalls:   []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr"},
 			wantNumber:  42,
 			wantCreated: true,
+		},
+		{
+			// The realistic case ADR 0018's legacy-name collision actually
+			// arises from: two different original tool names whose
+			// ShortName differs only by "/" versus "-" (e.g.
+			// "go:github.com/foo/bar" -> "bar" and "go:github.com/foo-bar"
+			// -> "foo-bar") sanitize to the identical legacy branch name.
+			// "bar" must not match a title bumping "foo-bar": a bare \b
+			// word-boundary check would wrongly match here, since "-" is
+			// not a word character to Go's regexp package and "bar" is a
+			// whole word inside "foo-bar" (ADR 0019 fixed this).
+			name:               "does not match a legacy branch name whose title bumps a tool name this tool's name is a suffix of",
+			legacyBranchNames:  []string{"mise-bump/go-github.com-foo-bar-1.27.0-legacy"},
+			legacyMatchName:    "bar",
+			legacyMatchVersion: "1.27.0",
+			openPRsByHead: map[string][]openPRStub{
+				"sgash708:mise-bump/go-github.com-foo-bar-1.27.0-legacy": {{Number: 88, Title: "chore(deps): bump foo-bar from 1.26.1 to 1.27.0"}},
+			},
+			wantCalls:   []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr"},
+			wantNumber:  42,
+			wantCreated: true,
+		},
+		{
+			// The legacy PR's title still encodes the "from" version as of
+			// when it was opened. If the pin was manually bumped partway
+			// since (a common thing to do after closing an unwanted PR),
+			// that "from" no longer matches what runner would regenerate
+			// today — an exact in.PRTitle comparison would miss this and
+			// resurrect the bump. Matching on tool name + target version
+			// alone must still find it (ADR 0019).
+			name:               "matches a legacy branch name whose title has a different 'from' version",
+			legacyBranchNames:  []string{"mise-bump/go-1.27.0-legacy"},
+			legacyMatchName:    "go",
+			legacyMatchVersion: "1.27.0",
+			closedPRsByHead: map[string][]closedPRStub{
+				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 7, Title: "chore(deps): bump go from 1.26.5 to 1.27.0", MergedAt: nil}},
+			},
+			wantCalls:     []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr"},
+			wantErr:       runner.ErrClosedPreviously,
+			wantErrSubstr: "previously closed",
+		},
+		{
+			// Likewise, the legacy PR's title may carry an " in <path>"
+			// suffix from when mise-config-path had more than one entry
+			// (or may lack it, if it now does but didn't before). That
+			// suffix must not affect the match.
+			name:               "matches a legacy branch name whose title has a different mise-config-path suffix",
+			legacyBranchNames:  []string{"mise-bump/go-1.27.0-legacy"},
+			legacyMatchName:    "go",
+			legacyMatchVersion: "1.27.0",
+			closedPRsByHead: map[string][]closedPRStub{
+				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 7, Title: "chore(deps): bump go from 1.26.1 to 1.27.0 in tools/mise.toml", MergedAt: nil}},
+			},
+			wantCalls:     []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr"},
+			wantErr:       runner.ErrClosedPreviously,
+			wantErrSubstr: "previously closed",
+		},
+		{
+			// A branch can have more than one closed PR in its history
+			// (e.g. closed, force-pushed a different bump, closed again).
+			// findClosedUnmergedPR must check every one against the match
+			// predicate rather than stopping at the first — a non-matching
+			// closed PR listed before a matching one must not hide it.
+			name:               "matches a closed PR that is not first in the list under a legacy branch name",
+			legacyBranchNames:  []string{"mise-bump/go-1.27.0-legacy"},
+			legacyMatchName:    "go",
+			legacyMatchVersion: "1.27.0",
+			closedPRsByHead: map[string][]closedPRStub{
+				"sgash708:mise-bump/go-1.27.0-legacy": {
+					{Number: 6, Title: "chore(deps): bump go from 1.25.0 to 1.26.0", MergedAt: nil},
+					{Number: 7, Title: "chore(deps): bump go from 1.26.1 to 1.27.0", MergedAt: nil},
+				},
+			},
+			wantCalls:     []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr"},
+			wantErr:       runner.ErrClosedPreviously,
+			wantErrSubstr: "previously closed",
 		},
 	}
 
@@ -374,17 +458,19 @@ func TestOpenBumpPR(t *testing.T) {
 			c := NewClient(srv.Client(), srv.URL, "tok", "sgash708/example")
 
 			number, created, err := c.OpenBumpPR(context.Background(), runner.BumpPRInput{
-				BaseBranch:        "main",
-				BranchName:        "mise-bump/go-1.27.0",
-				BranchPrefix:      tt.branchPrefix,
-				LegacyBranchNames: tt.legacyBranchNames,
-				FilePath:          "mise.toml",
-				FileContent:       []byte("[tools]\ngo = \"1.27.0\"\n"),
-				FileSHA:           "blobsha123",
-				CommitMessage:     "chore(deps): bump go from 1.26.1 to 1.27.0",
-				PRTitle:           "chore(deps): bump go from 1.26.1 to 1.27.0",
-				PRBody:            "Bumps go.",
-				Labels:            tt.labels,
+				BaseBranch:         "main",
+				BranchName:         "mise-bump/go-1.27.0",
+				BranchPrefix:       tt.branchPrefix,
+				LegacyBranchNames:  tt.legacyBranchNames,
+				LegacyMatchName:    tt.legacyMatchName,
+				LegacyMatchVersion: tt.legacyMatchVersion,
+				FilePath:           "mise.toml",
+				FileContent:        []byte("[tools]\ngo = \"1.27.0\"\n"),
+				FileSHA:            "blobsha123",
+				CommitMessage:      "chore(deps): bump go from 1.26.1 to 1.27.0",
+				PRTitle:            "chore(deps): bump go from 1.26.1 to 1.27.0",
+				PRBody:             "Bumps go.",
+				Labels:             tt.labels,
 			})
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
