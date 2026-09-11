@@ -172,3 +172,80 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestBranchName(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []outdated.Entry
+		want    string
+	}{
+		{
+			name:    "single entry uses the full tool name, not just the last path segment",
+			entries: []outdated.Entry{{Name: "aqua:golangci/golangci-lint", Latest: "2.13.2"}},
+			want:    "mise-bump/aqua-golangci-golangci-lint-2.13.2",
+		},
+		{
+			// Two different backends can share a trailing path segment (both
+			// end in "/cli"); using only the last segment would collide both
+			// into "mise-bump/cli-...". The full sanitized name must not.
+			name:    "different backends with the same trailing segment do not collide",
+			entries: []outdated.Entry{{Name: "go:github.com/bar/cli", Latest: "1.0.0"}},
+			want:    "mise-bump/go-github.com-bar-cli-1.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := branchName(tt.entries)
+			if got != tt.want {
+				t.Errorf("branchName(%+v) = %q, want %q", tt.entries, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBranchName_GroupedEntriesAreDeterministic(t *testing.T) {
+	entries := []outdated.Entry{
+		{Name: "go", Latest: "1.27.0"},
+		{Name: "node", Latest: "24.13.0"},
+	}
+
+	first := branchName(entries)
+	second := branchName([]outdated.Entry{
+		{Name: "go", Latest: "1.27.0"},
+		{Name: "node", Latest: "24.13.0"},
+	})
+	if first != second {
+		t.Errorf("branchName is not deterministic for the same entries: %q != %q", first, second)
+	}
+	if !strings.HasPrefix(first, "mise-bump/batch-") {
+		t.Errorf("branchName(%+v) = %q, want a mise-bump/batch-* name for a grouped set", entries, first)
+	}
+}
+
+func TestBranchNameCollision(t *testing.T) {
+	aqua := branchName([]outdated.Entry{{Name: "aqua:foo/cli", Latest: "1.0.0"}})
+	goInstall := branchName([]outdated.Entry{{Name: "go:github.com/bar/cli", Latest: "1.0.0"}})
+	if aqua == goInstall {
+		t.Errorf("branch names for different backends collided: both are %q", aqua)
+	}
+}
+
+func TestSanitize(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "leaves safe characters alone", in: "golangci-lint2.13", want: "golangci-lint2.13"},
+		{name: "replaces colon and slash", in: "aqua:foo/bar", want: "aqua-foo-bar"},
+		{name: "replaces unicode", in: "café", want: "caf-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitize(tt.in); got != tt.want {
+				t.Errorf("sanitize(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

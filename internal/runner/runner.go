@@ -148,7 +148,11 @@ func buildEnrichment(ctx context.Context, gh GitHub, entries []outdated.Entry) m
 func branchName(entries []outdated.Entry) string {
 	if len(entries) == 1 {
 		e := entries[0]
-		return fmt.Sprintf("mise-bump/%s-%s", sanitize(shortNameForBranch(e.Name)), sanitize(e.Latest))
+		// The full tool name (not just its trailing path segment) is used so
+		// that different backends sharing a segment — e.g. "aqua:foo/cli" and
+		// "go:github.com/bar/cli" both end in "/cli" — don't collide into the
+		// same branch name.
+		return fmt.Sprintf("mise-bump/%s-%s", sanitize(e.Name), sanitize(e.Latest))
 	}
 
 	h := fnv.New32a()
@@ -158,15 +162,6 @@ func branchName(entries []outdated.Entry) string {
 		_, _ = fmt.Fprintf(h, "%s@%s;", e.Name, e.Latest)
 	}
 	return fmt.Sprintf("mise-bump/batch-%x", h.Sum32())
-}
-
-func shortNameForBranch(name string) string {
-	for i := len(name) - 1; i >= 0; i-- {
-		if name[i] == '/' {
-			return name[i+1:]
-		}
-	}
-	return name
 }
 
 func sanitize(s string) string {
