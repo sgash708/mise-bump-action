@@ -53,6 +53,53 @@ func TestReleaseNotesHTML(t *testing.T) {
 			to:     "2.13.2",
 			wantOK: false,
 		},
+		{
+			// GitHub's /releases list is ordered by creation time, not by
+			// version. A backport release created after the newer version
+			// appears at a LOWER index than it (i.e. fromIdx < toIdx), which
+			// must not panic on releases[toIdx:fromIdx].
+			name: "from appears at a lower index than to in the list (backport) does not panic",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode([]map[string]string{
+					{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2 backported later"},
+					{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "notes 2.13.2"},
+				})
+			},
+			from:        "2.12.2",
+			to:          "2.13.2",
+			wantOK:      true,
+			wantContain: []string{"notes 2.13.2"},
+		},
+		{
+			name: "excludes draft releases",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode([]map[string]any{
+					{"tag_name": "v2.14.0", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.14.0", "body": "draft notes", "draft": true},
+					{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "notes 2.13.2"},
+					{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2"},
+				})
+			},
+			from:        "2.12.2",
+			to:          "2.13.2",
+			wantOK:      true,
+			wantContain: []string{"notes 2.13.2"},
+		},
+		{
+			name: "sanitizes mentions and issue references in the release body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode([]map[string]string{
+					{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "fix by @octocat in #123"},
+					{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2"},
+				})
+			},
+			from:   "2.12.2",
+			to:     "2.13.2",
+			wantOK: true,
+			// The raw "@octocat" and bare "#123" must not survive as-is, since
+			// GitHub would turn them into a real mention / a cross-reference
+			// to *our* repo's issue #123 rather than the upstream one.
+			wantContain: []string{"@\u200boctocat", "https://redirect.github.com/golangci/golangci-lint/issues/123"},
+		},
 	}
 
 	for _, tt := range tests {
