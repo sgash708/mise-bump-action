@@ -1,5 +1,6 @@
 [tools]
 # Intentionally pinned one version behind the real latest (2.13.2) so
 # mise-bump-action has something to demonstrate. See
-# .github/workflows/mise-bump-example.yml.
-"aqua:golangci/golangci-lint" = "2.13.2"
+# .github/workflows/mise-bump-example.yml. (Re-pinned after each demo run
+# bumps it back to latest.)
+"aqua:golangci/golangci-lint" = "2.12.2"
