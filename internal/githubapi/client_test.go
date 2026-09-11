@@ -70,51 +70,108 @@ func TestReadFile(t *testing.T) {
 	}
 }
 
+// newBumpPRMux builds a ServeMux with handlers for every endpoint OpenBumpPR
+// may call, recording each call into *calls in invocation order. Individual
+// tests override specific handlers to exercise existing-PR/stale-branch
+// branches.
+func newBumpPRMux(t *testing.T, calls *[]string, opts struct {
+	openPRs      []map[string]int
+	branchExists bool
+	prNumber     int
+}) *http.ServeMux {
+	t.Helper()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /repos/sgash708/example/pulls", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "find-open-pr")
+		_ = json.NewEncoder(w).Encode(opts.openPRs)
+	})
+	mux.HandleFunc("GET /repos/sgash708/example/git/ref/heads/main", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "get-ref")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": map[string]string{"sha": "basesha"},
+		})
+	})
+	mux.HandleFunc("GET /repos/sgash708/example/git/ref/heads/mise-bump/go-1.27.0", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "get-branch-sha")
+		if !opts.branchExists {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": map[string]string{"sha": "stalesha"},
+		})
+	})
+	mux.HandleFunc("DELETE /repos/sgash708/example/git/refs/heads/mise-bump/go-1.27.0", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "delete-ref")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /repos/sgash708/example/git/refs", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "create-ref")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{})
+	})
+	mux.HandleFunc("PUT /repos/sgash708/example/contents/mise.toml", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "put-file")
+		_ = json.NewEncoder(w).Encode(map[string]string{})
+	})
+	mux.HandleFunc("POST /repos/sgash708/example/pulls", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "create-pr")
+		_ = json.NewEncoder(w).Encode(map[string]int{"number": 42})
+	})
+	mux.HandleFunc("POST /repos/sgash708/example/issues/42/labels", func(w http.ResponseWriter, r *http.Request) {
+		*calls = append(*calls, "add-labels")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	return mux
+}
+
 func TestOpenBumpPR(t *testing.T) {
 	tests := []struct {
-		name      string
-		labels    []string
-		wantCalls []string
+		name         string
+		labels       []string
+		openPRs      []map[string]int
+		branchExists bool
+		wantCalls    []string
+		wantNumber   int
 	}{
 		{
-			name:      "calls branch, commit, PR, and labels in order",
-			labels:    []string{"dependencies"},
-			wantCalls: []string{"get-ref", "create-ref", "put-file", "create-pr", "add-labels"},
+			name:       "calls branch, commit, PR, and labels in order",
+			labels:     []string{"dependencies"},
+			wantCalls:  []string{"find-open-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr", "add-labels"},
+			wantNumber: 42,
 		},
 		{
-			name:      "skips add-labels when no labels are configured",
-			labels:    nil,
-			wantCalls: []string{"get-ref", "create-ref", "put-file", "create-pr"},
+			name:       "skips add-labels when no labels are configured",
+			labels:     nil,
+			wantCalls:  []string{"find-open-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr"},
+			wantNumber: 42,
+		},
+		{
+			name:       "returns the existing PR number when one is already open for the branch",
+			labels:     []string{"dependencies"},
+			openPRs:    []map[string]int{{"number": 99}},
+			wantCalls:  []string{"find-open-pr"},
+			wantNumber: 99,
+		},
+		{
+			name:         "deletes and recreates a stale branch when no open PR exists",
+			labels:       []string{"dependencies"},
+			branchExists: true,
+			wantCalls:    []string{"find-open-pr", "get-ref", "get-branch-sha", "delete-ref", "create-ref", "put-file", "create-pr", "add-labels"},
+			wantNumber:   42,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var calls []string
-			mux := http.NewServeMux()
-			mux.HandleFunc("/repos/sgash708/example/git/ref/heads/main", func(w http.ResponseWriter, r *http.Request) {
-				calls = append(calls, "get-ref")
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"object": map[string]string{"sha": "basesha"},
-				})
-			})
-			mux.HandleFunc("/repos/sgash708/example/git/refs", func(w http.ResponseWriter, r *http.Request) {
-				calls = append(calls, "create-ref")
-				w.WriteHeader(http.StatusCreated)
-				_ = json.NewEncoder(w).Encode(map[string]string{})
-			})
-			mux.HandleFunc("/repos/sgash708/example/contents/mise.toml", func(w http.ResponseWriter, r *http.Request) {
-				calls = append(calls, "put-file")
-				_ = json.NewEncoder(w).Encode(map[string]string{})
-			})
-			mux.HandleFunc("/repos/sgash708/example/pulls", func(w http.ResponseWriter, r *http.Request) {
-				calls = append(calls, "create-pr")
-				_ = json.NewEncoder(w).Encode(map[string]int{"number": 42})
-			})
-			mux.HandleFunc("/repos/sgash708/example/issues/42/labels", func(w http.ResponseWriter, r *http.Request) {
-				calls = append(calls, "add-labels")
-				w.WriteHeader(http.StatusOK)
-			})
+			mux := newBumpPRMux(t, &calls, struct {
+				openPRs      []map[string]int
+				branchExists bool
+				prNumber     int
+			}{openPRs: tt.openPRs, branchExists: tt.branchExists})
 			srv := httptest.NewServer(mux)
 			defer srv.Close()
 
@@ -134,8 +191,8 @@ func TestOpenBumpPR(t *testing.T) {
 			if err != nil {
 				t.Fatalf("OpenBumpPR returned error: %v", err)
 			}
-			if number != 42 {
-				t.Errorf("number = %d, want 42", number)
+			if number != tt.wantNumber {
+				t.Errorf("number = %d, want %d", number, tt.wantNumber)
 			}
 			if len(calls) != len(tt.wantCalls) {
 				t.Fatalf("calls = %+v, want %+v", calls, tt.wantCalls)

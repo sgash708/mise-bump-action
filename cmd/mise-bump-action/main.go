@@ -49,7 +49,7 @@ func run(ctx context.Context, cfg config.Config, stderr io.Writer, lookup lookup
 
 	numbers, err := runner.Run(ctx, cfg, allEntries, gh)
 	if err != nil {
-		return fmt.Errorf("failed to bump outdated tools (opened %d pull requests before failing): %w", len(numbers), err)
+		return fmt.Errorf("failed to bump some outdated tools (opened %d pull request(s) successfully): %w", len(numbers), err)
 	}
 
 	_, _ = fmt.Fprintf(stderr, "opened %d pull request(s): %v\n", len(numbers), numbers)

@@ -118,14 +118,23 @@ func TestRun(t *testing.T) {
 			wantPRCount: 2,
 		},
 		{
-			name:    "returns partial results when a later PR creation fails",
-			cfg:     config.Config{PRStrategy: grouping.PerTool, BaseBranch: "main"},
-			entries: twoEntries,
+			// A failure in one group must not stop later groups from being
+			// attempted: with a fail-fast Run, group 3 would never run and
+			// its PR would never open just because group 2 hit a transient
+			// error (e.g. a rate limit). All groups must be tried, with
+			// errors aggregated rather than returned on the first failure.
+			name: "attempts every group even when an earlier one fails",
+			cfg:  config.Config{PRStrategy: grouping.PerTool, BaseBranch: "main"},
+			entries: []outdated.Entry{
+				{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"},
+				{Name: "node", Requested: "24.12.0", Latest: "24.13.0", RelPath: "mise.toml"},
+				{Name: "terraform", Requested: "1.7.5", Latest: "1.14.7", RelPath: "mise.toml"},
+			},
 			newGitHub: func(t *testing.T) *GitHubMock {
 				calls := 0
 				return &GitHubMock{
 					ReadFileFunc: func(ctx context.Context, path, ref string) ([]byte, string, error) {
-						return []byte(baseContent), "blobsha", nil
+						return []byte("[tools]\ngo = \"1.26.1\"\nnode = \"24.12.0\"\nterraform = \"1.7.5\"\n"), "blobsha", nil
 					},
 					OpenBumpPRFunc: func(ctx context.Context, in BumpPRInput) (int, error) {
 						calls++
@@ -136,7 +145,7 @@ func TestRun(t *testing.T) {
 					},
 				}
 			},
-			wantPRCount:   1,
+			wantPRCount:   2,
 			wantErr:       true,
 			wantErrSubstr: "boom",
 		},

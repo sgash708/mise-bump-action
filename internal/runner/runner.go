@@ -6,6 +6,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 
@@ -48,10 +49,13 @@ type GitHub interface {
 	CommitsHTML(ctx context.Context, repo, fromVersion, toVersion string) (html string, ok bool)
 }
 
-// Run groups entries per cfg.PRStrategy and opens one pull request per group.
-// It returns the created pull request numbers in the order groups were
-// processed. On error, it returns the pull requests successfully opened so
-// far alongside the error.
+// Run groups entries per cfg.PRStrategy and opens one pull request per
+// group. Every group is attempted even if an earlier one fails (e.g. a
+// transient GitHub API error), so one bad group can't prevent unrelated
+// tools from being bumped. It returns the pull request numbers successfully
+// opened, in the order their groups were processed, alongside a combined
+// error (via errors.Join) for any groups that failed. The returned error is
+// nil only if every group succeeded.
 func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh GitHub) ([]int, error) {
 	groups, err := grouping.Group(entries, cfg.PRStrategy)
 	if err != nil {
@@ -60,44 +64,59 @@ func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh Gi
 
 	multiConfig := len(cfg.MiseConfigPaths) > 1
 	var prNumbers []int
+	var errs []error
 
 	for _, group := range groups {
-		path := group.Entries[0].RelPath
-
-		content, sha, err := gh.ReadFile(ctx, path, cfg.BaseBranch)
+		number, err := bumpGroup(ctx, cfg, group, multiConfig, gh)
 		if err != nil {
-			return prNumbers, fmt.Errorf("failed to read %s: %w", path, err)
-		}
-
-		for _, e := range group.Entries {
-			content, err = misetoml.Bump(content, e.Name, e.Requested, e.Latest)
-			if err != nil {
-				return prNumbers, fmt.Errorf("failed to bump %s in %s: %w", e.Name, path, err)
-			}
-		}
-
-		enrichment := buildEnrichment(ctx, gh, group.Entries)
-		text := prtext.Build(group.Entries, multiConfig, enrichment)
-		branch := branchName(group.Entries)
-
-		number, err := gh.OpenBumpPR(ctx, BumpPRInput{
-			BaseBranch:    cfg.BaseBranch,
-			BranchName:    branch,
-			FilePath:      path,
-			FileContent:   content,
-			FileSHA:       sha,
-			CommitMessage: text.Commit,
-			PRTitle:       text.Title,
-			PRBody:        text.Body,
-			Labels:        cfg.Labels,
-		})
-		if err != nil {
-			return prNumbers, fmt.Errorf("failed to open pull request for branch %s: %w", branch, err)
+			errs = append(errs, err)
+			continue
 		}
 		prNumbers = append(prNumbers, number)
 	}
 
+	if len(errs) > 0 {
+		return prNumbers, errors.Join(errs...)
+	}
 	return prNumbers, nil
+}
+
+// bumpGroup reads the group's shared mise.toml, applies every entry's bump,
+// renders PR text (with best-effort enrichment), and opens the pull request.
+func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, multiConfig bool, gh GitHub) (int, error) {
+	path := group.Entries[0].RelPath
+
+	content, sha, err := gh.ReadFile(ctx, path, cfg.BaseBranch)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	for _, e := range group.Entries {
+		content, err = misetoml.Bump(content, e.Name, e.Requested, e.Latest)
+		if err != nil {
+			return 0, fmt.Errorf("failed to bump %s in %s: %w", e.Name, path, err)
+		}
+	}
+
+	enrichment := buildEnrichment(ctx, gh, group.Entries)
+	text := prtext.Build(group.Entries, multiConfig, enrichment)
+	branch := branchName(group.Entries)
+
+	number, err := gh.OpenBumpPR(ctx, BumpPRInput{
+		BaseBranch:    cfg.BaseBranch,
+		BranchName:    branch,
+		FilePath:      path,
+		FileContent:   content,
+		FileSHA:       sha,
+		CommitMessage: text.Commit,
+		PRTitle:       text.Title,
+		PRBody:        text.Body,
+		Labels:        cfg.Labels,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to open pull request for branch %s: %w", branch, err)
+	}
+	return number, nil
 }
 
 // buildEnrichment fetches release notes/commits for each entry backed by a

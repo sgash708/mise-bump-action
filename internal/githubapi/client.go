@@ -8,13 +8,33 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/sgash708/mise-bump-action/internal/runner"
 )
+
+// statusError carries the HTTP status code from a failed GitHub API call so
+// callers can distinguish "not found" (expected, e.g. checking whether a
+// branch exists yet) from genuine errors.
+type statusError struct {
+	method, path string
+	status       int
+	body         string
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("github api %s %s returned %d: %s", e.method, e.path, e.status, e.body)
+}
+
+func isNotFound(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.status == http.StatusNotFound
+}
 
 // Client implements runner.GitHub.
 type Client struct {
@@ -67,7 +87,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("github api %s %s returned %d: %s", method, path, resp.StatusCode, string(b))
+		return &statusError{method: method, path: path, status: resp.StatusCode, body: string(b)}
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
@@ -95,14 +115,39 @@ func (c *Client) ReadFile(ctx context.Context, path, ref string) ([]byte, string
 	return decoded, out.SHA, nil
 }
 
-// OpenBumpPR creates a branch from in.BaseBranch, commits in.FileContent to
-// in.FilePath on that branch, opens a pull request, and applies in.Labels. It
-// returns the created pull request number.
+// OpenBumpPR is idempotent with respect to in.BranchName:
+//
+//   - If a pull request is already open from in.BranchName into
+//     in.BaseBranch, its number is returned immediately with no further
+//     writes. This is what keeps a rerun against still-open PRs from
+//     erroring with "422 Reference already exists" instead of silently
+//     succeeding.
+//   - Otherwise, if in.BranchName exists without an open PR (e.g. left over
+//     from a run that failed after creating the branch but before opening
+//     the PR), the stale branch is deleted and recreated from the current
+//     in.BaseBranch so its content isn't stale.
+//   - Then it creates the branch, commits in.FileContent to in.FilePath,
+//     opens a pull request, and applies in.Labels.
 func (c *Client) OpenBumpPR(ctx context.Context, in runner.BumpPRInput) (int, error) {
+	if number, exists, err := c.findOpenPR(ctx, in.BaseBranch, in.BranchName); err != nil {
+		return 0, err
+	} else if exists {
+		return number, nil
+	}
+
 	baseSHA, err := c.getRefSHA(ctx, in.BaseBranch)
 	if err != nil {
 		return 0, err
 	}
+
+	if _, exists, err := c.branchSHA(ctx, in.BranchName); err != nil {
+		return 0, err
+	} else if exists {
+		if err := c.deleteRef(ctx, in.BranchName); err != nil {
+			return 0, err
+		}
+	}
+
 	if err := c.createRef(ctx, in.BranchName, baseSHA); err != nil {
 		return 0, err
 	}
@@ -119,16 +164,57 @@ func (c *Client) OpenBumpPR(ctx context.Context, in runner.BumpPRInput) (int, er
 	return number, nil
 }
 
-func (c *Client) getRefSHA(ctx context.Context, branch string) (string, error) {
+// findOpenPR looks for an already-open pull request from branch into base.
+func (c *Client) findOpenPR(ctx context.Context, base, branch string) (number int, exists bool, err error) {
+	owner, _, _ := strings.Cut(c.repo, "/")
+	var out []struct {
+		Number int `json:"number"`
+	}
+	path := fmt.Sprintf("/repos/%s/pulls?state=open&base=%s&head=%s:%s",
+		c.repo, url.QueryEscape(base), url.QueryEscape(owner), url.QueryEscape(branch))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return 0, false, fmt.Errorf("failed to check for an existing pull request for branch %s: %w", branch, err)
+	}
+	if len(out) == 0 {
+		return 0, false, nil
+	}
+	return out[0].Number, true, nil
+}
+
+// branchSHA returns the branch's current commit SHA, or exists=false if the
+// branch doesn't exist (a 404 from GitHub, not an error here).
+func (c *Client) branchSHA(ctx context.Context, branch string) (sha string, exists bool, err error) {
 	var out struct {
 		Object struct {
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/ref/heads/%s", c.repo, branch), nil, &out); err != nil {
-		return "", fmt.Errorf("failed to get ref sha for branch %s: %w", branch, err)
+	err = c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/ref/heads/%s", c.repo, branch), nil, &out)
+	if isNotFound(err) {
+		return "", false, nil
 	}
-	return out.Object.SHA, nil
+	if err != nil {
+		return "", false, fmt.Errorf("failed to check branch %s: %w", branch, err)
+	}
+	return out.Object.SHA, true, nil
+}
+
+func (c *Client) deleteRef(ctx context.Context, branch string) error {
+	if err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/git/refs/heads/%s", c.repo, branch), nil, nil); err != nil {
+		return fmt.Errorf("failed to delete stale branch %s: %w", branch, err)
+	}
+	return nil
+}
+
+func (c *Client) getRefSHA(ctx context.Context, branch string) (string, error) {
+	sha, exists, err := c.branchSHA(ctx, branch)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("base branch %s not found", branch)
+	}
+	return sha, nil
 }
 
 func (c *Client) createRef(ctx context.Context, branch, sha string) error {
