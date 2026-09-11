@@ -4,6 +4,14 @@ mise-bump-action の設定パターン集。`single-tool/` だけが実際に
 [`.github/workflows/mise-bump-example.yml`](../.github/workflows/mise-bump-example.yml)
 から実行されるライブデモで、他は設定例を示すためだけの非実行ファイル。
 
+各ディレクトリの`mise-bump.yml`はそのまま`.github/workflows/mise-bump.yml`としてコピーして使える。
+
+| ファイル | 用途 |
+|---|---|
+| [`single-tool/mise-bump.yml`](single-tool/mise-bump.yml) | 基本形(1ファイル・`pr-strategy: per-tool`) |
+| [`grouped-tools/mise-bump.yml`](grouped-tools/mise-bump.yml) | 複数ツールを1PRにまとめる(`pr-strategy: single`) |
+| [`monorepo/mise-bump.yml`](monorepo/mise-bump.yml) | モノレポで複数`mise-config-path`を指定 |
+
 ## single-tool/ — 基本形(ライブデモ)
 
 `mise-config-path` に1ファイルを指定する最小構成。`pr-strategy: per-tool`(既定)

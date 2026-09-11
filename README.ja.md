@@ -37,6 +37,18 @@ jobs:
           pr-strategy: per-tool
 ```
 
+## Examples
+
+そのままコピーして`.github/workflows/mise-bump.yml`に置ける例:
+
+| ファイル | 用途 |
+|---|---|
+| [`examples/single-tool/mise-bump.yml`](examples/single-tool/mise-bump.yml) | 基本形(1ファイル・`pr-strategy: per-tool`) |
+| [`examples/grouped-tools/mise-bump.yml`](examples/grouped-tools/mise-bump.yml) | 複数ツールを1PRにまとめる(`pr-strategy: single`) |
+| [`examples/monorepo/mise-bump.yml`](examples/monorepo/mise-bump.yml) | モノレポで複数`mise-config-path`を指定 |
+
+各パターンの詳細は [examples/](examples/README.md) を参照。
+
 ## Inputs
 
 | input | 説明 | 既定値 |
@@ -45,9 +57,6 @@ jobs:
 | `pr-strategy` | `per-tool`(ツールごとに別PR) / `single`(1PRにまとめる) | `per-tool` |
 | `labels` | 付与するラベル(カンマ区切り) | `dependencies` |
 | `base-branch` | PRのベースブランチ | リポジトリの既定ブランチ |
-
-`pr-strategy: single`での複数ツール一括やモノレポでの複数`mise-config-path`指定など、
-設定パターンの具体例は [examples/](examples/README.md) を参照。
 
 ## 技術スタック
 

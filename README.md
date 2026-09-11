@@ -33,6 +33,18 @@ jobs:
           pr-strategy: per-tool
 ```
 
+## Examples
+
+Ready-to-copy workflows for `.github/workflows/mise-bump.yml`:
+
+| File | Use case |
+|---|---|
+| [`examples/single-tool/mise-bump.yml`](examples/single-tool/mise-bump.yml) | Basic single-file setup (`pr-strategy: per-tool`) |
+| [`examples/grouped-tools/mise-bump.yml`](examples/grouped-tools/mise-bump.yml) | Bundle multiple tools into one PR (`pr-strategy: single`) |
+| [`examples/monorepo/mise-bump.yml`](examples/monorepo/mise-bump.yml) | Monorepo with multiple `mise-config-path` values |
+
+See [examples/](examples/README.md) for details on each pattern.
+
 ## Inputs
 
 | input | description | default |
@@ -41,8 +53,6 @@ jobs:
 | `pr-strategy` | `per-tool` (one PR per tool) or `single` (bundle everything into one PR) | `per-tool` |
 | `labels` | Labels to apply, comma-separated | `dependencies` |
 | `base-branch` | Base branch for pull requests | the repository's default branch |
-
-See [examples/](examples/README.md) for configuration patterns such as bundling multiple tools with `pr-strategy: single` or pointing at several `mise-config-path` values in a monorepo.
 
 ## Tech stack
 
