@@ -1851,7 +1851,7 @@ func run(ctx context.Context, getenv func(string) string, stderr io.Writer) erro
 	}
 
 	if len(allEntries) == 0 {
-		fmt.Fprintln(stderr, "no outdated mise-managed tools found")
+		_, _ = fmt.Fprintln(stderr, "no outdated mise-managed tools found")
 		return nil
 	}
 
@@ -1862,7 +1862,7 @@ func run(ctx context.Context, getenv func(string) string, stderr io.Writer) erro
 		return fmt.Errorf("failed to bump outdated tools (opened %d pull requests before failing): %w", len(numbers), err)
 	}
 
-	fmt.Fprintf(stderr, "opened %d pull request(s): %v\n", len(numbers), numbers)
+	_, _ = fmt.Fprintf(stderr, "opened %d pull request(s): %v\n", len(numbers), numbers)
 	return nil
 }
 ```
