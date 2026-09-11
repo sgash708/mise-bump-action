@@ -53,7 +53,7 @@ type GitHub interface {
 // processed. On error, it returns the pull requests successfully opened so
 // far alongside the error.
 func Run(ctx context.Context, cfg config.Config, entries []outdated.Entry, gh GitHub) ([]int, error) {
-	groups, err := grouping.Group(entries, grouping.Strategy(cfg.PRStrategy))
+	groups, err := grouping.Group(entries, cfg.PRStrategy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to group outdated entries: %w", err)
 	}

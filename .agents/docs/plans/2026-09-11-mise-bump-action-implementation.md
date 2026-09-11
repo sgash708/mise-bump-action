@@ -2085,6 +2085,23 @@ v0.1.1でデモを実行したところ、moq(v0.6.0→v0.7.1のはず)が検出
 
 **発覚した開発環境の罠:** `go.mod`の`go`ディレクティブが`1.27.1`(2026-09時点の最新)だと、moq(v0.6.0/v0.7.1いずれも)の内部で使われている`golang.org/x/tools`のpackage loaderが`internal error: package "context" without types was imported`で落ちる。`go.mod`を一時的に`go 1.25.0`に下げるとmoqは正常に動く(生成されたmocks.goファイル自体は`go`ディレクティブの値に依存しないため、生成後に`go.mod`を`1.27.1`へ戻せば問題なくビルドできる)。mocks.go再生成が必要になったら、この手順(一時ダウングレード→moq実行→元に戻す)を踏む。
 
+### Task 20〜22(実施後の追補): examples/の拡充、README多言語化
+
+- ユーザーから「examplesを充実させた方がいい」との指摘を受け、`examples/`を`single-tool/`(既存のライブデモ)・`grouped-tools/`(`pr-strategy: single`)・`monorepo/`(複数`mise-config-path`)の3パターンに拡張し、`examples/README.md`で各パターンのworkflow snippetをまとめた。
+- 続けて「ghaのサンプルもそれぞれ足した方がいい」との指摘で、各パターンディレクトリにそのままコピーして使える実ファイル`mise-bump.yml`を追加(chromagicの`examples/vrt.yaml`等と同じ、README内のコードブロックだけでなく実体ファイルとして提供する形式)。
+- 「README.mdは英語化してREADME.ja.mdも」との指示で、`sgash708/chromagic`と同じ形式(`**English** | [日本語](README.ja.md)`の言語切替リンク、2ファイル構成)にREADMEを分割した。
+
+### Task 23(実施後の追補): `pr-strategy`をenum化し`config.FromEnv`で早期バリデーション
+
+ユーザーから「`pr-strategy`はenumになっているか」との指摘を受け確認したところ、`grouping.Strategy`型(`PerTool`/`Single`定数)は存在するが`config.Config.PRStrategy`は素の`string`のままで、不正な値(`"foo"`等)は`config.FromEnv`をすり抜けて`runner.Run`内の`grouping.Group`まで到達して初めてエラーになっていた。
+
+- `config.Config.PRStrategy`の型を`string`から`grouping.Strategy`に変更(`config`が`grouping`をimportする形。逆方向の依存は無いため循環なし)。
+- `config.FromEnv`内で、既定値適用後に`strategy != grouping.PerTool && strategy != grouping.Single`を早期チェックし、不正な値は`FromEnv`の時点で`error`を返すようにした。
+- `grouping.Group`側の`switch`によるバリデーションは、`config`を経由しない直接呼び出しに対する防御として維持(2層防御)。
+- `runner.Run`内の`grouping.Strategy(cfg.PRStrategy)`という冗長なキャストを削除(型が揃ったため不要に)。
+
+action.yml側の`pr-strategy` inputはGitHub Actions自体には選択肢を制限する仕組み(enum)が無く、あくまで文字列inputのまま。型としての保証はGoバイナリ内部(`config`→`grouping`)のみである点は変わらない。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。

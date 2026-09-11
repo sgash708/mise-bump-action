@@ -3,6 +3,8 @@ package config
 import (
 	"reflect"
 	"testing"
+
+	"github.com/sgash708/mise-bump-action/internal/grouping"
 )
 
 func fakeEnv(values map[string]string) func(string) string {
@@ -25,7 +27,7 @@ func TestFromEnv(t *testing.T) {
 			},
 			want: Config{
 				MiseConfigPaths: []string{"mise.toml"},
-				PRStrategy:      "per-tool",
+				PRStrategy:      grouping.PerTool,
 				Labels:          []string{"dependencies"},
 				BaseBranch:      "main",
 				GitHubToken:     "tok",
@@ -46,7 +48,7 @@ func TestFromEnv(t *testing.T) {
 			},
 			want: Config{
 				MiseConfigPaths: []string{"mise.toml", "backend/mise.toml"},
-				PRStrategy:      "single",
+				PRStrategy:      grouping.Single,
 				Labels:          []string{"dependencies", "mise"},
 				BaseBranch:      "develop",
 				GitHubToken:     "tok",
@@ -67,6 +69,16 @@ func TestFromEnv(t *testing.T) {
 			env: map[string]string{
 				"GITHUB_TOKEN":    "tok",
 				"GITHUB_REF_NAME": "main",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid pr-strategy returns error",
+			env: map[string]string{
+				"GITHUB_TOKEN":      "tok",
+				"GITHUB_REPOSITORY": "sgash708/example",
+				"GITHUB_REF_NAME":   "main",
+				"INPUT_PR_STRATEGY": "bogus",
 			},
 			wantErr: true,
 		},

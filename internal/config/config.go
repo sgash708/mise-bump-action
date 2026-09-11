@@ -4,12 +4,14 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sgash708/mise-bump-action/internal/grouping"
 )
 
 // Config holds all inputs needed to run one invocation of mise-bump-action.
 type Config struct {
 	MiseConfigPaths []string
-	PRStrategy      string
+	PRStrategy      grouping.Strategy
 	Labels          []string
 	BaseBranch      string
 	GitHubToken     string
@@ -37,9 +39,12 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		paths = []string{"mise.toml"}
 	}
 
-	strategy := getenv("INPUT_PR_STRATEGY")
+	strategy := grouping.Strategy(getenv("INPUT_PR_STRATEGY"))
 	if strategy == "" {
-		strategy = "per-tool"
+		strategy = grouping.PerTool
+	}
+	if strategy != grouping.PerTool && strategy != grouping.Single {
+		return Config{}, fmt.Errorf("invalid pr-strategy %q: must be %q or %q", strategy, grouping.PerTool, grouping.Single)
 	}
 
 	labels := splitNonEmpty(getenv("INPUT_LABELS"), ",")

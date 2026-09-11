@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sgash708/mise-bump-action/internal/config"
+	"github.com/sgash708/mise-bump-action/internal/grouping"
 	"github.com/sgash708/mise-bump-action/internal/outdated"
 )
 
@@ -28,7 +29,7 @@ func TestRun(t *testing.T) {
 	}{
 		{
 			name:    "per-tool opens one PR per entry",
-			cfg:     config.Config{PRStrategy: "per-tool", BaseBranch: "main", Labels: []string{"dependencies"}},
+			cfg:     config.Config{PRStrategy: grouping.PerTool, BaseBranch: "main", Labels: []string{"dependencies"}},
 			entries: twoEntries,
 			newGitHub: func(t *testing.T) *GitHubMock {
 				var openedTitles []string
@@ -55,7 +56,7 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:    "single bundles into one PR containing both bumps",
-			cfg:     config.Config{PRStrategy: "single", BaseBranch: "main"},
+			cfg:     config.Config{PRStrategy: grouping.Single, BaseBranch: "main"},
 			entries: twoEntries,
 			newGitHub: func(t *testing.T) *GitHubMock {
 				return &GitHubMock{
@@ -75,7 +76,7 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name: "fetches enrichment for entries backed by a resolvable github repo",
-			cfg:  config.Config{PRStrategy: "per-tool", BaseBranch: "main"},
+			cfg:  config.Config{PRStrategy: grouping.PerTool, BaseBranch: "main"},
 			entries: []outdated.Entry{
 				{Name: "aqua:golangci/golangci-lint", Requested: "2.12.2", Latest: "2.13.2", RelPath: "mise.toml"},
 				{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"},
@@ -118,7 +119,7 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:    "returns partial results when a later PR creation fails",
-			cfg:     config.Config{PRStrategy: "per-tool", BaseBranch: "main"},
+			cfg:     config.Config{PRStrategy: grouping.PerTool, BaseBranch: "main"},
 			entries: twoEntries,
 			newGitHub: func(t *testing.T) *GitHubMock {
 				calls := 0
