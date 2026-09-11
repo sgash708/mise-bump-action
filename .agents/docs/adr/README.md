@@ -12,6 +12,8 @@ mise-bump-action における**確定済みの判断**を1ファイル1決定で
 | [0002](0002-pr-creation-via-direct-github-api.md) | PR作成はGitHub API直呼び出しで自前実装し、サードパーティactionに依存しない | セキュリティ |
 | [0003](0003-follow-dependabot-official-pr-format.md) | PRフォーマットはDependabot公式PRの規約(bump系タイトル + updated-dependenciesトレーラー)を踏襲する | UX |
 | [0004](0004-v0-single-platform-prebuilt-binary.md) | v0はlinux/amd64向け事前ビルドバイナリのみで配布し、将来のマルチプラットフォーム移行に備えてインターフェースを固定する | 配布 |
+| [0005](0005-conventional-commits-release-notes.md) | リリースノートはgit logからConventional Commitsのprefixで自作生成する | リリース |
+| [0006](0006-outdated-bump-field-over-latest.md) | `mise outdated --json`は`latest`ではなく`bump`フィールドを優先して使う | 正確性 |
 
 ## 書き方
 
