@@ -57,4 +57,4 @@ jobs:
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 --notes-file release-notes.md
+        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 --title "${GITHUB_REF_NAME}" --notes-file release-notes.md
