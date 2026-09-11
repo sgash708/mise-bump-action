@@ -2036,6 +2036,15 @@ CIが未整備だった(`release.yml`はタグpush時のみ)ため、push/PRで�
 - `mise.toml`の`golangci-lint`を`2.9.0`→`2.13.2`に更新。go1.26でビルドされた2.9.0は「ビルドに使ったGoよりターゲットGoバージョンが新しい」というエラーで動かなくなったため(go1.27.0ビルドの2.13.2で解消)。
 - `.github/workflows/release.yml`が`go-version: "1.23"`を直書きしていたため、`ci.yml`/`lint.yml`と同じ`go-version-file: go.mod`に統一し、以後go.mod更新だけで3ワークフロー全てに反映されるようにした。
 
+### Task 16(実施後の追補): reviewdogによるactionlint/yamllintのPRアノテーション化
+
+`actionlint .github/workflows/*.yml`のプレーン実行では、ワークフローファイルのみが対象で`.octocov.yml`/`.golangci.yaml`等の一般YAMLは検証されていなかった。reviewdogを導入しPR上にインライン注釈が出るようにしつつ、対象を全YAMLに広げた。
+
+- `.yamllint.yml`・`.yamllintignore`をseiryuの規約(`extends: relaxed`、line-length無効化、ignore-from-fileでworkflowsを除外)に合わせて追加。`.github/workflows/`はactionlintが担当するためyamllintの対象から除外(seiryuと同じ役割分担)。
+- `.github/workflows/lint.yml`のプレーン`actionlint`実行を`reviewdog/action-actionlint@v1`に、新規`reviewdog/action-yamllint@v1`を追加。両方とも`reporter: github-check`(push/PR両方のイベントで動く。`github-pr-check`等PR専用reporterは push イベントで機能しないため不採用)、`fail_level: error`(デフォルトの`none`だと注釈は出てもCIが失敗しないため明示指定)、`filter_mode: nofilter`(diffではなく全ファイルを対象にする)。
+- `reviewdog/action-actionlint`はDockerイメージにactionlint 1.7.12を固定で同梱しておりバージョン指定不可なため、`mise.toml`側の`aqua:rhysd/actionlint`も`1.7.10`→`1.7.12`に合わせてローカル/CI間のドリフトを最小化した。
+- job権限に`checks: write`を追加(github-check reporterの必須権限)。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。

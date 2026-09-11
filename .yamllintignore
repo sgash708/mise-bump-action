@@ -1,0 +1,2 @@
+# actionlint が担当するため yamllint の対象から除外する
+.github/workflows/

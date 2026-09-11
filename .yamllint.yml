@@ -1,0 +1,4 @@
+extends: relaxed
+ignore-from-file: .yamllintignore
+rules:
+  line-length: disable
