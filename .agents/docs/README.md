@@ -12,4 +12,4 @@
 
 ## 実装計画
 
-`plans/` に実装フェーズごとの計画を置く(未着手のため現時点では空)。
+- [mise-bump-action 実装計画](plans/2026-09-11-mise-bump-action-implementation.md) — タスク単位の実装ログ、各タスク実施後の追補を含む

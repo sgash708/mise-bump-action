@@ -1,5 +1,17 @@
 # Contributing
 
+## Dev commands
+
+Tasks are defined in `mise.toml` (run `mise tasks` to list them):
+
+```
+mise run build    # go build
+mise run test     # go test ./...
+mise run lint     # golangci-lint run
+mise run fmt      # gofmt + goimports
+VERSION=vX.Y.Z mise run release   # bump action.yml, tag vX.Y.Z, move the floating vN tag
+```
+
 ## Windows: enable symlink support before cloning
 
 This repo tracks a few paths as real git symlinks (mode `120000`):

@@ -14,7 +14,7 @@ Dependabot風のPRを作成する。
 
 ## 使い方
 
-利用側リポジトリの`.github/workflows/`に、以下のようなreusable workflowを置く。
+利用側リポジトリの`.github/workflows/`に、以下のようなワークフローを置く。
 
 ```yaml
 on:
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
-      - uses: sgash708/mise-bump-action@v0.2.5
+      - uses: sgash708/mise-bump-action@v0
         with:
           mise-config-path: mise.toml
           pr-strategy: per-tool
@@ -56,7 +56,7 @@ jobs:
 | `mise-config-path` | 対象の`mise.toml`パス。複数指定時は改行区切りの複数行文字列 | `mise.toml` |
 | `pr-strategy` | `per-tool`(ツールごとに別PR) / `single`(1PRにまとめる) | `per-tool` |
 | `labels` | 付与するラベル(カンマ区切り) | `dependencies` |
-| `base-branch` | PRのベースブランチ | リポジトリの既定ブランチ |
+| `base-branch` | PRのベースブランチ | 実行をトリガーしたref(`GITHUB_REF_NAME`) |
 | `dry-run` | `true`にするとブランチ/PRを作成せず、意図したPRのタイトル・本文・diffをjob summaryに出力する | `false` |
 
 ## 技術スタック
