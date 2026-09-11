@@ -583,11 +583,11 @@ git commit -m "feat: mise.tomlのピン書き換えロジックを追加"
       Single  Strategy = "single"
   )
 
-  type Group struct {
+  type PRGroup struct {
       Entries []outdated.Entry
   }
 
-  func Group(entries []outdated.Entry, strategy Strategy) ([]Group, error)
+  func Group(entries []outdated.Entry, strategy Strategy) ([]PRGroup, error)
   ```
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -684,28 +684,28 @@ const (
 	Single Strategy = "single"
 )
 
-// Group is a set of outdated entries that will be bumped together in one
+// PRGroup is a set of outdated entries that will be bumped together in one
 // pull request.
-type Group struct {
+type PRGroup struct {
 	Entries []outdated.Entry
 }
 
 // Group splits entries into pull request groups according to strategy. An
 // empty entries slice always yields zero groups.
-func Group(entries []outdated.Entry, strategy Strategy) ([]Group, error) {
+func Group(entries []outdated.Entry, strategy Strategy) ([]PRGroup, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
 
 	switch strategy {
 	case PerTool, "":
-		groups := make([]Group, len(entries))
+		groups := make([]PRGroup, len(entries))
 		for i, e := range entries {
-			groups[i] = Group{Entries: []outdated.Entry{e}}
+			groups[i] = PRGroup{Entries: []outdated.Entry{e}}
 		}
 		return groups, nil
 	case Single:
-		return []Group{{Entries: entries}}, nil
+		return []PRGroup{{Entries: entries}}, nil
 	default:
 		return nil, fmt.Errorf("unknown pr-strategy %q", strategy)
 	}
