@@ -108,7 +108,12 @@ func bumpGroup(ctx context.Context, cfg config.Config, group grouping.PRGroup, m
 		}
 	}
 
-	enrichment := buildEnrichment(ctx, gh, group.Entries)
+	// prtext only renders the full release-notes/commits <details> blocks for
+	// a single-entry PR (buildGrouped only ever uses Enrichment.RepoURL, a
+	// pure string derivation with no API call); fetching them for a grouped
+	// bump would be pure waste, so skip it there.
+	fetchFullDetails := len(group.Entries) == 1
+	enrichment := buildEnrichment(ctx, gh, group.Entries, fetchFullDetails)
 	text := prtext.Build(group.Entries, multiConfig, enrichment)
 	branch := branchName(group.Entries)
 
@@ -166,8 +171,11 @@ func lineDiff(before, after []byte) string {
 // buildEnrichment fetches release notes/commits for each entry backed by a
 // resolvable GitHub repo. Entries with no resolvable repo, or for which
 // enrichment fetching fails, are simply absent from the result — enrichment
-// is best-effort and never blocks the bump.
-func buildEnrichment(ctx context.Context, gh GitHub, entries []outdated.Entry) map[string]prtext.Enrichment {
+// is best-effort and never blocks the bump. When fetchFullDetails is false,
+// only RepoURL is populated (a pure string derivation, no API call) since
+// that's all a grouped PR body renders; the release-notes/commits HTML calls
+// are skipped entirely to avoid wasted GitHub API requests.
+func buildEnrichment(ctx context.Context, gh GitHub, entries []outdated.Entry, fetchFullDetails bool) map[string]prtext.Enrichment {
 	enrichment := make(map[string]prtext.Enrichment, len(entries))
 	for _, e := range entries {
 		repo, ok := reponame.FromToolName(e.Name)
@@ -175,11 +183,13 @@ func buildEnrichment(ctx context.Context, gh GitHub, entries []outdated.Entry) m
 			continue
 		}
 		enr := prtext.Enrichment{RepoURL: "https://github.com/" + repo}
-		if html, ok := gh.ReleaseNotesHTML(ctx, repo, e.Requested, e.Latest); ok {
-			enr.ReleaseNotesHTML = html
-		}
-		if html, ok := gh.CommitsHTML(ctx, repo, e.Requested, e.Latest); ok {
-			enr.CommitsHTML = html
+		if fetchFullDetails {
+			if html, ok := gh.ReleaseNotesHTML(ctx, repo, e.Requested, e.Latest); ok {
+				enr.ReleaseNotesHTML = html
+			}
+			if html, ok := gh.CommitsHTML(ctx, repo, e.Requested, e.Latest); ok {
+				enr.CommitsHTML = html
+			}
 		}
 		enrichment[e.Name] = enr
 	}

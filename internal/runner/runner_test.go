@@ -119,6 +119,39 @@ func TestRun(t *testing.T) {
 			wantPRCount: 2,
 		},
 		{
+			// buildGrouped only ever renders Enrichment.RepoURL (a pure string
+			// derivation), never ReleaseNotesHTML/CommitsHTML — so fetching
+			// those for a multi-entry group would be a wasted GitHub API call.
+			name: "single strategy with multiple entries does not fetch full enrichment details",
+			cfg:  config.Config{PRStrategy: grouping.Single, BaseBranch: "main"},
+			entries: []outdated.Entry{
+				{Name: "aqua:golangci/golangci-lint", Requested: "2.12.2", Latest: "2.13.2", RelPath: "mise.toml"},
+				{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"},
+			},
+			newGitHub: func(t *testing.T) *GitHubMock {
+				return &GitHubMock{
+					ReadFileFunc: func(ctx context.Context, path, ref string) ([]byte, string, error) {
+						return []byte("[tools]\ngo = \"1.26.1\"\n\"aqua:golangci/golangci-lint\" = \"2.12.2\"\n"), "blobsha", nil
+					},
+					ReleaseNotesHTMLFunc: func(ctx context.Context, repo, from, to string) (string, bool) {
+						t.Errorf("ReleaseNotesHTML should not be called for a grouped (>1 entry) bump, got repo %q", repo)
+						return "", false
+					},
+					CommitsHTMLFunc: func(ctx context.Context, repo, from, to string) (string, bool) {
+						t.Errorf("CommitsHTML should not be called for a grouped (>1 entry) bump, got repo %q", repo)
+						return "", false
+					},
+					OpenBumpPRFunc: func(ctx context.Context, in BumpPRInput) (int, error) {
+						if !strings.Contains(in.PRBody, "[golangci-lint](https://github.com/golangci/golangci-lint)") {
+							t.Errorf("expected grouped PR body to still contain a repo link, got %q", in.PRBody)
+						}
+						return 1, nil
+					},
+				}
+			},
+			wantPRCount: 1,
+		},
+		{
 			// A failure in one group must not stop later groups from being
 			// attempted: with a fail-fast Run, group 3 would never run and
 			// its PR would never open just because group 2 hit a transient
