@@ -29,8 +29,8 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
       - uses: sgash708/mise-bump-action@v0.2.2
         with:
           mise-config-path: mise.toml
