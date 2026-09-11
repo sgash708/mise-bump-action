@@ -1,0 +1,40 @@
+name: "mise-bump-action"
+description: "Bump mise-managed tool versions with Dependabot-style pull requests"
+
+inputs:
+  mise-config-path:
+    description: "Path(s) to mise.toml, newline-separated for multiple files"
+    required: false
+    default: "mise.toml"
+  pr-strategy:
+    description: "per-tool (one PR per tool) or single (bundle all into one PR)"
+    required: false
+    default: "per-tool"
+  labels:
+    description: "Comma-separated labels to add to opened pull requests"
+    required: false
+    default: "dependencies"
+  base-branch:
+    description: "Base branch for pull requests (defaults to the current ref)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download mise-bump-action binary
+      shell: bash
+      run: |
+        curl -sSL -o "${{ github.action_path }}/mise-bump-action" \
+          "https://github.com/sgash708/mise-bump-action/releases/download/v0.1.0/mise-bump-action_linux_amd64"
+        chmod +x "${{ github.action_path }}/mise-bump-action"
+
+    - name: Run mise-bump-action
+      shell: bash
+      env:
+        INPUT_MISE_CONFIG_PATH: ${{ inputs.mise-config-path }}
+        INPUT_PR_STRATEGY: ${{ inputs.pr-strategy }}
+        INPUT_LABELS: ${{ inputs.labels }}
+        INPUT_BASE_BRANCH: ${{ inputs.base-branch }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: "${{ github.action_path }}/mise-bump-action"

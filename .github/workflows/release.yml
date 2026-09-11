@@ -1,0 +1,27 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Build linux/amd64 binary
+        run: GOOS=linux GOARCH=amd64 go build -o mise-bump-action_linux_amd64 ./cmd/mise-bump-action
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 --generate-notes
