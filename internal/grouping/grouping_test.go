@@ -14,6 +14,14 @@ func entries(names ...string) []outdated.Entry {
 	return es
 }
 
+func entriesWithPaths(pairs ...[2]string) []outdated.Entry {
+	es := make([]outdated.Entry, len(pairs))
+	for i, p := range pairs {
+		es[i] = outdated.Entry{Name: p[0], RelPath: p[1]}
+	}
+	return es
+}
+
 func TestGroup(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -36,6 +44,23 @@ func TestGroup(t *testing.T) {
 			strategy:    Single,
 			wantGroups:  1,
 			wantPerSize: []int{3},
+		},
+		{
+			// bumpGroup rewrites a single file per group (see
+			// runner.bumpGroup), so Single must not bundle entries from
+			// different mise-config-path files into one group: entries from
+			// the second file would fail with "not found" against the first
+			// file's content, or worse, silently corrupt it if both files
+			// happen to share a tool name.
+			name: "single sub-groups by file when multiple mise-config-path files are involved",
+			entries: entriesWithPaths(
+				[2]string{"go", "backend/mise.toml"},
+				[2]string{"node", "backend/mise.toml"},
+				[2]string{"terraform", "frontend/mise.toml"},
+			),
+			strategy:    Single,
+			wantGroups:  2,
+			wantPerSize: []int{2, 1},
 		},
 		{
 			name:       "empty entries returns no groups",
