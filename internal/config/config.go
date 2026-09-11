@@ -56,6 +56,12 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	if baseBranch == "" {
 		baseBranch = getenv("GITHUB_REF_NAME")
 	}
+	if baseBranch == "" {
+		return Config{}, fmt.Errorf("base-branch is required: set the base-branch input, or run this action on a workflow trigger where GITHUB_REF_NAME is a real branch (schedule or workflow_dispatch, not pull_request)")
+	}
+	if strings.Contains(baseBranch, "/merge") || strings.Contains(baseBranch, "/head") {
+		return Config{}, fmt.Errorf("base-branch %q looks like a pull_request ref (GITHUB_REF_NAME is not a real branch on pull_request events); set the base-branch input explicitly", baseBranch)
+	}
 
 	apiURL := getenv("GITHUB_API_URL")
 	if apiURL == "" {
