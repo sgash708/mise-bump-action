@@ -18,7 +18,7 @@ mise-bump-action の設定パターン集。`single-tool/` だけが実際に
 なので、outdatedなツールごとに別PRが開く。
 
 ```yaml
-- uses: sgash708/mise-bump-action@v0.2.0
+- uses: sgash708/mise-bump-action@v0.2.1
   with:
     mise-config-path: examples/single-tool/mise.toml
     pr-strategy: per-tool
@@ -31,7 +31,7 @@ mise-bump-action の設定パターン集。`single-tool/` だけが実際に
 古いバージョンにピンしてある。
 
 ```yaml
-- uses: sgash708/mise-bump-action@v0.2.0
+- uses: sgash708/mise-bump-action@v0.2.1
   with:
     mise-config-path: examples/grouped-tools/mise.toml
     pr-strategy: single
@@ -45,7 +45,7 @@ mise-bump-action の設定パターン集。`single-tool/` だけが実際に
 改行区切りの複数行文字列で指定する。
 
 ```yaml
-- uses: sgash708/mise-bump-action@v0.2.0
+- uses: sgash708/mise-bump-action@v0.2.1
   with:
     mise-config-path: |
       examples/monorepo/backend/mise.toml
