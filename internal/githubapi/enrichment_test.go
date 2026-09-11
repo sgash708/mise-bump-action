@@ -9,12 +9,22 @@ import (
 	"testing"
 )
 
+// releaseStub mirrors the fields of GitHub's release API this package reads,
+// typed instead of map[string]any so a stubbed test payload can't silently
+// drift from the shape ReleaseNotesHTML actually decodes.
+type releaseStub struct {
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	Body    string `json:"body"`
+	Draft   bool   `json:"draft,omitempty"`
+}
+
 func TestReleaseNotesHTML(t *testing.T) {
-	releases := []map[string]string{
-		{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "notes 2.13.2"},
-		{"tag_name": "v2.13.1", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.1", "body": "notes 2.13.1"},
-		{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2"},
-		{"tag_name": "v2.12.1", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.1", "body": "notes 2.12.1"},
+	releases := []releaseStub{
+		{TagName: "v2.13.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", Body: "notes 2.13.2"},
+		{TagName: "v2.13.1", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.13.1", Body: "notes 2.13.1"},
+		{TagName: "v2.12.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", Body: "notes 2.12.2"},
+		{TagName: "v2.12.1", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.12.1", Body: "notes 2.12.1"},
 	}
 
 	tests := []struct {
@@ -56,9 +66,9 @@ func TestReleaseNotesHTML(t *testing.T) {
 		{
 			name: "from appears at a lower index than to in the list (backport) does not panic",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewEncoder(w).Encode([]map[string]string{
-					{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2 backported later"},
-					{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "notes 2.13.2"},
+				_ = json.NewEncoder(w).Encode([]releaseStub{
+					{TagName: "v2.12.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", Body: "notes 2.12.2 backported later"},
+					{TagName: "v2.13.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", Body: "notes 2.13.2"},
 				})
 			},
 			from:        "2.12.2",
@@ -69,10 +79,10 @@ func TestReleaseNotesHTML(t *testing.T) {
 		{
 			name: "excludes draft releases",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewEncoder(w).Encode([]map[string]any{
-					{"tag_name": "v2.14.0", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.14.0", "body": "draft notes", "draft": true},
-					{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "notes 2.13.2"},
-					{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2"},
+				_ = json.NewEncoder(w).Encode([]releaseStub{
+					{TagName: "v2.14.0", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.14.0", Body: "draft notes", Draft: true},
+					{TagName: "v2.13.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", Body: "notes 2.13.2"},
+					{TagName: "v2.12.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", Body: "notes 2.12.2"},
 				})
 			},
 			from:        "2.12.2",
@@ -83,9 +93,9 @@ func TestReleaseNotesHTML(t *testing.T) {
 		{
 			name: "sanitizes mentions and issue references in the release body",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewEncoder(w).Encode([]map[string]string{
-					{"tag_name": "v2.13.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", "body": "fix by @octocat in #123"},
-					{"tag_name": "v2.12.2", "html_url": "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", "body": "notes 2.12.2"},
+				_ = json.NewEncoder(w).Encode([]releaseStub{
+					{TagName: "v2.13.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.13.2", Body: "fix by @octocat in #123"},
+					{TagName: "v2.12.2", HTMLURL: "https://github.com/golangci/golangci-lint/releases/tag/v2.12.2", Body: "notes 2.12.2"},
 				})
 			},
 			from:   "2.12.2",
@@ -118,6 +128,21 @@ func TestReleaseNotesHTML(t *testing.T) {
 	}
 }
 
+// compareStub and commitStub mirror the fields this package reads from
+// GitHub's "compare" API response, typed instead of map[string]any.
+type compareStub struct {
+	HTMLURL string       `json:"html_url"`
+	Commits []commitStub `json:"commits"`
+}
+
+type commitStub struct {
+	SHA     string `json:"sha"`
+	HTMLURL string `json:"html_url"`
+	Commit  struct {
+		Message string `json:"message"`
+	} `json:"commit"`
+}
+
 func TestCommitsHTML(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -128,12 +153,14 @@ func TestCommitsHTML(t *testing.T) {
 		{
 			name: "renders commits from the compare API",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"html_url": "https://github.com/matryer/moq/compare/v0.6.0...v0.7.1",
-					"commits": []map[string]any{
-						{"sha": "abc1234567890", "html_url": "https://github.com/matryer/moq/commit/abc1234567890", "commit": map[string]string{"message": "feat: add thing\n\nlonger body"}},
+				resp := compareStub{
+					HTMLURL: "https://github.com/matryer/moq/compare/v0.6.0...v0.7.1",
+					Commits: []commitStub{
+						{SHA: "abc1234567890", HTMLURL: "https://github.com/matryer/moq/commit/abc1234567890"},
 					},
-				})
+				}
+				resp.Commits[0].Commit.Message = "feat: add thing\n\nlonger body"
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantOK:      true,
 			wantContain: []string{"abc1234", "feat: add thing", "compare view"},

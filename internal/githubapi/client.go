@@ -179,21 +179,46 @@ func (c *Client) ReadFile(ctx context.Context, path, ref string) ([]byte, string
 // commits, opens the PR, and applies in.Labels (created=true). When
 // in.BranchPrefix is set, any other open PR sharing that prefix (an older
 // version of the same tool) is closed with a comment pointing at the new PR.
+//
+// A match under one of in.LegacyBranchNames additionally requires the found
+// PR's title to equal in.PRTitle. Legacy branch names are built from
+// sanitize(name) alone, without the fingerprint the current scheme mixes in
+// (see runner.legacyBranchNames) — two different tool names can sanitize to
+// the identical legacy branch name, so a name-only match there can point at
+// a different tool's PR entirely. The title (unchanged in format since
+// v1.0.0) is the same string runner regenerates for this exact tool and
+// version, so requiring it to match rejects that false positive (ADR 0018).
+// This is a mitigation, not a guarantee: two different tools sharing both a
+// mise.jdx.dev shortName and a target version could still collide. Legacy
+// branch name support is planned for removal in the next major version
+// (README "Upgrading"), at which point this whole path goes away.
 func (c *Client) OpenBumpPR(ctx context.Context, in runner.BumpPRInput) (int, bool, error) {
-	candidates := append([]string{in.BranchName}, in.LegacyBranchNames...)
-
-	for _, branch := range candidates {
-		if number, exists, err := c.findOpenPR(ctx, in.BaseBranch, branch); err != nil {
+	if number, _, exists, err := c.findOpenPR(ctx, in.BaseBranch, in.BranchName); err != nil {
+		return 0, false, err
+	} else if exists {
+		return number, false, nil
+	}
+	for _, branch := range in.LegacyBranchNames {
+		number, title, exists, err := c.findOpenPR(ctx, in.BaseBranch, branch)
+		if err != nil {
 			return 0, false, err
-		} else if exists {
+		}
+		if exists && title == in.PRTitle {
 			return number, false, nil
 		}
 	}
 
-	for _, branch := range candidates {
-		if closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, branch); err != nil {
+	if _, closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, in.BranchName); err != nil {
+		return 0, false, err
+	} else if closed {
+		return 0, false, runner.ErrClosedPreviously
+	}
+	for _, branch := range in.LegacyBranchNames {
+		title, closed, err := c.findClosedUnmergedPR(ctx, in.BaseBranch, branch)
+		if err != nil {
 			return 0, false, err
-		} else if closed {
+		}
+		if closed && title == in.PRTitle {
 			return 0, false, runner.ErrClosedPreviously
 		}
 	}
@@ -231,40 +256,45 @@ func (c *Client) OpenBumpPR(ctx context.Context, in runner.BumpPRInput) (int, bo
 }
 
 // findOpenPR looks for an already-open pull request from branch into base.
-func (c *Client) findOpenPR(ctx context.Context, base, branch string) (number int, exists bool, err error) {
+// title is that PR's title, used by callers matching a legacy branch name to
+// reject a name collision with a different tool (see OpenBumpPR).
+func (c *Client) findOpenPR(ctx context.Context, base, branch string) (number int, title string, exists bool, err error) {
 	owner, _, _ := strings.Cut(c.repo, "/")
 	var out []struct {
-		Number int `json:"number"`
+		Number int    `json:"number"`
+		Title  string `json:"title"`
 	}
 	path := fmt.Sprintf("/repos/%s/pulls?state=open&base=%s&head=%s:%s",
 		c.repo, url.QueryEscape(base), url.QueryEscape(owner), url.QueryEscape(branch))
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return 0, false, fmt.Errorf("failed to check for an existing pull request for branch %s: %w", branch, err)
+		return 0, "", false, fmt.Errorf("failed to check for an existing pull request for branch %s: %w", branch, err)
 	}
 	if len(out) == 0 {
-		return 0, false, nil
+		return 0, "", false, nil
 	}
-	return out[0].Number, true, nil
+	return out[0].Number, out[0].Title, true, nil
 }
 
 // findClosedUnmergedPR reports whether a pull request from branch into base
 // was previously closed without being merged (runner.ErrClosedPreviously).
-func (c *Client) findClosedUnmergedPR(ctx context.Context, base, branch string) (bool, error) {
+// title is that PR's title; see findOpenPR.
+func (c *Client) findClosedUnmergedPR(ctx context.Context, base, branch string) (title string, closed bool, err error) {
 	owner, _, _ := strings.Cut(c.repo, "/")
 	var out []struct {
+		Title    string  `json:"title"`
 		MergedAt *string `json:"merged_at"`
 	}
 	path := fmt.Sprintf("/repos/%s/pulls?state=closed&base=%s&head=%s:%s",
 		c.repo, url.QueryEscape(base), url.QueryEscape(owner), url.QueryEscape(branch))
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return false, fmt.Errorf("failed to check for a previously closed pull request for branch %s: %w", branch, err)
+		return "", false, fmt.Errorf("failed to check for a previously closed pull request for branch %s: %w", branch, err)
 	}
 	for _, pr := range out {
 		if pr.MergedAt == nil {
-			return true, nil
+			return pr.Title, true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
 }
 
 // closeSupersededPRs closes every other open PR into base whose branch
@@ -321,10 +351,15 @@ func (c *Client) HasOpenPRWithPrefix(ctx context.Context, base, prefix string) (
 }
 
 type openPRRef struct {
-	Number int `json:"number"`
-	Head   struct {
-		Ref string `json:"ref"`
-	} `json:"head"`
+	Number int       `json:"number"`
+	Head   prHeadRef `json:"head"`
+}
+
+// prHeadRef is named (rather than an inline anonymous struct) purely so test
+// code can construct an openPRRef literal without repeating the anonymous
+// struct's shape at every call site.
+type prHeadRef struct {
+	Ref string `json:"ref"`
 }
 
 // maxOpenPRPages bounds listOpenPRRefs's pagination loop (100 PRs/page, so

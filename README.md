@@ -121,6 +121,14 @@ apart safely by prefix alone. If you have open bump pull requests from
 before v1.6.0, close them once after upgrading; every pull request opened
 from now on uses the current format consistently.
 
+Recognizing a pull request under an older branch-name format also requires
+its title to match exactly, to reject a same-named-but-different tool that
+happens to collide under the old, fingerprint-less format (ADR 0018). This
+compatibility path (`LegacyBranchNames`) is scaffolding for the migration
+above, not a permanent feature: it will be removed entirely in the next
+major version, at which point only the current branch-name format is
+recognized.
+
 ## Limitations
 
 Trade-offs from favoring a light setup over Renovate/Dependabot's full feature set:
@@ -128,7 +136,10 @@ Trade-offs from favoring a light setup over Renovate/Dependabot's full feature s
 - **No major-version-only suppression.** `ignore` excludes a tool entirely; there's no "propose patches but not majors" mode (many mise-managed tools — arbitrary CLIs, language runtimes — don't follow strict semver closely enough for that rule to be reliable).
 - **Only `mise.toml` is supported**, not `.tool-versions`. `mise-config-path` must point at a TOML file mise-bump-action can parse and rewrite in place.
 - **Values it can't rewrite in place** (inline tables/arrays, e.g. `python = { version = "3.11" }`) are skipped per-entry with a note in the job summary, not treated as a fatal error — but they also never get bumped. Use `ignore` to silence the repeated notice.
-- **Semi-automatic by design.** Authenticating with the caller's own `GITHUB_TOKEN` (ADR 0002) avoids needing an extra PAT, but it also means the first CI run on a PR this action opens needs a one-time manual approval (see the note in [Examples](#examples)) — unlike Dependabot, which runs as a verified first-party App with different treatment.
+- **Semi-automatic by design.** Authenticating with the caller's own `GITHUB_TOKEN` (ADR 0002) avoids needing an extra PAT, but it also means the first CI run on a PR this action opens needs a one-time manual approval (see the note in [Examples](#examples)) — unlike Dependabot, which runs as a verified first-party App with different treatment. There's no `github-token` input to supply a PAT/App token instead, which would let that first-run approval be automated away; this is a deliberate scope choice for personal/small-scale use, not an oversight (ADR 0018).
+- **No overall run timeout, and no secondary (abuse-detection) rate limit handling.** `internal/githubapi.Client` retries a single 403/429 once (ADR 0008), but doesn't back off further or bound the whole run's wall-clock time. A pathological run (many outdated tools, a misbehaving API) could run long or trip GitHub's secondary rate limits. Acceptable for the personal/individual-repository scale this action targets; not recommended for a shared, high-tool-count monorepo without adding this yourself upstream (e.g. a workflow-level `timeout-minutes`).
+- **Stale-branch replacement is name-based, not history-based.** Before creating a branch, `OpenBumpPR` deletes any existing ref at the same name (see ADR 0009's troubleshooting note) rather than verifying it's actually this action's own abandoned branch. In practice only this action ever writes to its own `mise-bump/*` namespace, so this is a theoretical rather than observed risk.
+- **The end-to-end test (`e2e/`) runs against a mocked GitHub API and a fake `mise` binary**, not a real repository or a real `mise outdated`. It verifies the action's own logic (grouping, PR text, output writing) end-to-end, but not `mise`'s own version-resolution behavior or genuine GitHub API quirks.
 
 ## Tech stack
 

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -76,10 +77,14 @@ func installFakeMise(t *testing.T, script string) string {
 }
 
 // recordedRequest captures one request the mock GitHub API server received.
+// body is kept as raw JSON (rather than decoded into a shared map[string]any)
+// since a single recorder here sees requests of many different shapes
+// (create-ref, put-file, create-pr, ...); each assertion below decodes only
+// the specific fields it needs into its own small typed struct.
 type recordedRequest struct {
 	method string
 	path   string
-	body   map[string]any
+	body   json.RawMessage
 }
 
 // mockGitHub builds an httptest server covering every endpoint the binary's
@@ -88,9 +93,8 @@ type recordedRequest struct {
 func mockGitHub(t *testing.T, requests *[]recordedRequest) *httptest.Server {
 	t.Helper()
 	var mu sync.Mutex
-	record := func(r *http.Request) map[string]any {
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	record := func(r *http.Request) json.RawMessage {
+		body, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		*requests = append(*requests, recordedRequest{method: r.Method, path: r.URL.Path, body: body})
 		mu.Unlock()
@@ -111,7 +115,13 @@ func mockGitHub(t *testing.T, requests *[]recordedRequest) *httptest.Server {
 	})
 	mux.HandleFunc("GET /repos/sgash708/e2e-example/git/ref/heads/main", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
-		_ = json.NewEncoder(w).Encode(map[string]any{"object": map[string]string{"sha": "basesha"}})
+		resp := struct {
+			Object struct {
+				SHA string `json:"sha"`
+			} `json:"object"`
+		}{}
+		resp.Object.SHA = "basesha"
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("GET /repos/sgash708/e2e-example/git/ref/heads/", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
@@ -210,14 +220,22 @@ func TestE2E_OpensRealPullRequest(t *testing.T) {
 		t.Fatal("expected a POST to /pulls, got none")
 	}
 	wantTitle := "chore(deps): bump golangci-lint from 2.12.2 to 2.13.2"
-	if createPR.body["title"] != wantTitle {
-		t.Errorf("PR title = %q, want %q", createPR.body["title"], wantTitle)
+	var prBody struct {
+		Title string `json:"title"`
+	}
+	_ = json.Unmarshal(createPR.body, &prBody)
+	if prBody.Title != wantTitle {
+		t.Errorf("PR title = %q, want %q", prBody.Title, wantTitle)
 	}
 
 	if putFile == nil {
 		t.Fatal("expected a PUT to /contents/mise.toml, got none")
 	}
-	decoded, err := base64.StdEncoding.DecodeString(putFile.body["content"].(string))
+	var fileBody struct {
+		Content string `json:"content"`
+	}
+	_ = json.Unmarshal(putFile.body, &fileBody)
+	decoded, err := base64.StdEncoding.DecodeString(fileBody.Content)
 	if err != nil {
 		t.Fatalf("failed to decode committed file content: %v", err)
 	}

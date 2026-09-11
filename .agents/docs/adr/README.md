@@ -25,6 +25,7 @@ mise-bump-action における**確定済みの判断**を1ファイル1決定で
 | [0015](0015-pr-numbers-opened-count-outputs.md) | `pr-numbers`/`opened-count`をaction outputとして公開する | UX |
 | [0016](0016-fix-branch-collision-deadlock-label-and-ref-bugs.md) | ブランチプレフィックス衝突・max-open-prsデッドロック・ラベル衝突・`/head`誤検知の4件を修正する | 信頼性 |
 | [0017](0017-branch-name-migration-pagination-opened-count-fix.md) | ブランチ名の無告知破壊的変更・ページネーション欠如・opened-countの二重計上を修正する | 信頼性/互換性 |
+| [0018](0018-legacy-branch-title-guard-and-scope-closure.md) | legacy branch名の衝突をPRタイトルで防ぎ、据え置き項目をLimitationsとして確定する | 信頼性/スコープ |
 
 ## 書き方
 

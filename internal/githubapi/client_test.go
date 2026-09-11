@@ -110,18 +110,46 @@ func TestReadFile(t *testing.T) {
 	}
 }
 
+// openPRStub and closedPRStub describe one canned pull request returned by
+// newBumpPRMux for a head-keyed legacy-branch-name lookup: typed rather than
+// map[string]any so each field's shape (an int number, a string title) is
+// checked at compile time.
+type openPRStub struct {
+	Number int    `json:"number"`
+	Title  string `json:"title,omitempty"`
+}
+
+type closedPRStub struct {
+	Number   int     `json:"number"`
+	Title    string  `json:"title,omitempty"`
+	MergedAt *string `json:"merged_at"`
+}
+
+// strPtr takes the address of a string literal, which Go doesn't allow
+// directly (&"foo" is not valid syntax).
+func strPtr(s string) *string { return &s }
+
+// refObjStub mirrors the GitHub "get ref" response shape ({"object":
+// {"sha": ...}}), shared by the base-branch and stale-branch lookups.
+type refObjStub struct {
+	Object struct {
+		SHA string `json:"sha"`
+	} `json:"object"`
+}
+
 // bumpPRMuxOpts configures newBumpPRMux's canned responses.
 type bumpPRMuxOpts struct {
 	openPRs      []map[string]int // exact-branch state=open lookup response
-	closedPRs    []map[string]any // exact-branch state=closed lookup response (each may set "merged_at")
+	closedPRs    []closedPRStub   // exact-branch state=closed lookup response
 	branchExists bool
-	otherOpenPRs []map[string]any // state=open list (no head filter), for superseded-PR search
+	otherOpenPRs []openPRRef // state=open list (no head filter), for superseded-PR search
 	// openPRsByHead/closedPRsByHead, keyed by the exact "owner:branch" head
 	// query value, take priority over openPRs/closedPRs when set — used to
 	// give a legacy branch name a different lookup result than the primary
-	// one.
-	openPRsByHead   map[string][]map[string]int
-	closedPRsByHead map[string][]map[string]any
+	// one, including a Title that exercises OpenBumpPR's title-based
+	// collision guard on legacy matches.
+	openPRsByHead   map[string][]openPRStub
+	closedPRsByHead map[string][]closedPRStub
 }
 
 // newBumpPRMux builds a ServeMux with handlers for every endpoint OpenBumpPR
@@ -158,9 +186,9 @@ func newBumpPRMux(t *testing.T, calls *[]string, opts bumpPRMuxOpts) *http.Serve
 	})
 	mux.HandleFunc("GET /repos/sgash708/example/git/ref/heads/main", func(w http.ResponseWriter, r *http.Request) {
 		*calls = append(*calls, "get-ref")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"object": map[string]string{"sha": "basesha"},
-		})
+		resp := refObjStub{}
+		resp.Object.SHA = "basesha"
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("GET /repos/sgash708/example/git/ref/heads/mise-bump/go-1.27.0", func(w http.ResponseWriter, r *http.Request) {
 		*calls = append(*calls, "get-branch-sha")
@@ -168,9 +196,9 @@ func newBumpPRMux(t *testing.T, calls *[]string, opts bumpPRMuxOpts) *http.Serve
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"object": map[string]string{"sha": "stalesha"},
-		})
+		resp := refObjStub{}
+		resp.Object.SHA = "stalesha"
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("DELETE /repos/sgash708/example/git/refs/heads/mise-bump/go-1.27.0", func(w http.ResponseWriter, r *http.Request) {
 		*calls = append(*calls, "delete-ref")
@@ -212,11 +240,11 @@ func TestOpenBumpPR(t *testing.T) {
 		branchPrefix      string
 		legacyBranchNames []string
 		openPRs           []map[string]int
-		closedPRs         []map[string]any
-		openPRsByHead     map[string][]map[string]int
-		closedPRsByHead   map[string][]map[string]any
+		closedPRs         []closedPRStub
+		openPRsByHead     map[string][]openPRStub
+		closedPRsByHead   map[string][]closedPRStub
 		branchExists      bool
-		otherOpenPRs      []map[string]any
+		otherOpenPRs      []openPRRef
 		wantCalls         []string
 		wantNumber        int
 		wantCreated       bool
@@ -257,7 +285,7 @@ func TestOpenBumpPR(t *testing.T) {
 			// reopen this exact bump." No writes must happen past this check.
 			name:          "returns ErrClosedPreviously and makes no writes when a matching PR was closed unmerged",
 			labels:        []string{"dependencies"},
-			closedPRs:     []map[string]any{{"number": 7, "merged_at": nil}},
+			closedPRs:     []closedPRStub{{Number: 7}},
 			wantCalls:     []string{"find-open-pr", "find-closed-pr"},
 			wantErr:       runner.ErrClosedPreviously,
 			wantErrSubstr: "previously closed",
@@ -267,7 +295,7 @@ func TestOpenBumpPR(t *testing.T) {
 			// same bump (e.g. it was merged, then reverted upstream).
 			name:        "proceeds normally when the matching closed PR was merged",
 			labels:      nil,
-			closedPRs:   []map[string]any{{"number": 7, "merged_at": "2026-01-01T00:00:00Z"}},
+			closedPRs:   []closedPRStub{{Number: 7, MergedAt: strPtr("2026-01-01T00:00:00Z")}},
 			wantCalls:   []string{"find-open-pr", "find-closed-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr"},
 			wantNumber:  42,
 			wantCreated: true,
@@ -278,10 +306,10 @@ func TestOpenBumpPR(t *testing.T) {
 			name:         "closes a superseded open PR for the same tool",
 			labels:       nil,
 			branchPrefix: "mise-bump/go-",
-			otherOpenPRs: []map[string]any{
-				{"number": 10, "head": map[string]string{"ref": "mise-bump/go-1.26.1"}},
-				{"number": 11, "head": map[string]string{"ref": "mise-bump/go-1.27.0"}},   // excludeBranch: must not be touched
-				{"number": 12, "head": map[string]string{"ref": "mise-bump/node-20.0.0"}}, // different tool: must not be touched
+			otherOpenPRs: []openPRRef{
+				{Number: 10, Head: prHeadRef{Ref: "mise-bump/go-1.26.1"}},
+				{Number: 11, Head: prHeadRef{Ref: "mise-bump/go-1.27.0"}},   // excludeBranch: must not be touched
+				{Number: 12, Head: prHeadRef{Ref: "mise-bump/node-20.0.0"}}, // different tool: must not be touched
 			},
 			wantCalls:   []string{"find-open-pr", "find-closed-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr", "list-open-prs", "close-pr:10", "comment:10"},
 			wantNumber:  42,
@@ -293,8 +321,8 @@ func TestOpenBumpPR(t *testing.T) {
 			// and no new branch/PR is created (ADR 0017).
 			name:              "finds an existing open PR under a legacy branch name",
 			legacyBranchNames: []string{"mise-bump/go-1.27.0-legacy"},
-			openPRsByHead: map[string][]map[string]int{
-				"sgash708:mise-bump/go-1.27.0-legacy": {{"number": 77}},
+			openPRsByHead: map[string][]openPRStub{
+				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 77, Title: "chore(deps): bump go from 1.26.1 to 1.27.0"}},
 			},
 			wantCalls:  []string{"find-open-pr", "find-open-pr"},
 			wantNumber: 77,
@@ -304,12 +332,28 @@ func TestOpenBumpPR(t *testing.T) {
 			// still must not reopen it as a "new" bump under the new name.
 			name:              "returns ErrClosedPreviously for a bump previously closed under a legacy branch name",
 			legacyBranchNames: []string{"mise-bump/go-1.27.0-legacy"},
-			closedPRsByHead: map[string][]map[string]any{
-				"sgash708:mise-bump/go-1.27.0-legacy": {{"number": 7, "merged_at": nil}},
+			closedPRsByHead: map[string][]closedPRStub{
+				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 7, Title: "chore(deps): bump go from 1.26.1 to 1.27.0", MergedAt: nil}},
 			},
 			wantCalls:     []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr"},
 			wantErr:       runner.ErrClosedPreviously,
 			wantErrSubstr: "previously closed",
+		},
+		{
+			// legacyBranchNames is built from sanitize(name) alone (no
+			// fingerprint), so a different tool's PR can share the exact
+			// legacy branch name (ADR 0018). A title mismatch must be
+			// treated as "not this bump," not as an existing match — the
+			// bump proceeds to open its own new PR instead of silently
+			// adopting someone else's.
+			name:              "does not match a legacy branch name whose PR title belongs to a different tool",
+			legacyBranchNames: []string{"mise-bump/go-1.27.0-legacy"},
+			openPRsByHead: map[string][]openPRStub{
+				"sgash708:mise-bump/go-1.27.0-legacy": {{Number: 88, Title: "chore(deps): bump foo-bar from 1.26.1 to 1.27.0"}},
+			},
+			wantCalls:   []string{"find-open-pr", "find-open-pr", "find-closed-pr", "find-closed-pr", "get-ref", "get-branch-sha", "create-ref", "put-file", "create-pr"},
+			wantNumber:  42,
+			wantCreated: true,
 		},
 	}
 
@@ -370,18 +414,31 @@ func TestOpenBumpPR(t *testing.T) {
 	}
 }
 
+// prWithLabelsStub is openPRRef plus a labels field GitHub's real API
+// includes but listOpenPRRefs never reads — used only to prove counting is
+// based on branch name, not label (ADR 0016).
+type prWithLabelsStub struct {
+	Number int           `json:"number"`
+	Labels []prLabelStub `json:"labels,omitempty"`
+	Head   prHeadRef     `json:"head"`
+}
+
+type prLabelStub struct {
+	Name string `json:"name"`
+}
+
 func TestCountOpenBumpPRs(t *testing.T) {
 	tests := []struct {
 		name      string
-		prs       []map[string]any
+		prs       []prWithLabelsStub
 		wantCount int
 	}{
 		{
 			name: "counts only PRs whose branch is in this action's namespace",
-			prs: []map[string]any{
-				{"number": 1, "head": map[string]string{"ref": "mise-bump/go_1.27.0"}},
-				{"number": 2, "head": map[string]string{"ref": "dependabot/npm_and_yarn/left-pad-1.3.0"}},
-				{"number": 3, "head": map[string]string{"ref": "mise-bump/batch-abc123"}},
+			prs: []prWithLabelsStub{
+				{Number: 1, Head: prHeadRef{Ref: "mise-bump/go_1.27.0"}},
+				{Number: 2, Head: prHeadRef{Ref: "dependabot/npm_and_yarn/left-pad-1.3.0"}},
+				{Number: 3, Head: prHeadRef{Ref: "mise-bump/batch-abc123"}},
 			},
 			wantCount: 2,
 		},
@@ -391,8 +448,8 @@ func TestCountOpenBumpPRs(t *testing.T) {
 			// does, so counting by label would wrongly count Dependabot's
 			// own PRs against max-open-prs (ADR 0016).
 			name: "does not count another tool's PR sharing the default dependencies label",
-			prs: []map[string]any{
-				{"number": 1, "labels": []map[string]string{{"name": "dependencies"}}, "head": map[string]string{"ref": "dependabot/npm_and_yarn/left-pad-1.3.0"}},
+			prs: []prWithLabelsStub{
+				{Number: 1, Labels: []prLabelStub{{Name: "dependencies"}}, Head: prHeadRef{Ref: "dependabot/npm_and_yarn/left-pad-1.3.0"}},
 			},
 			wantCount: 0,
 		},
@@ -424,12 +481,12 @@ func TestCountOpenBumpPRs(t *testing.T) {
 // into base: CountOpenBumpPRs/HasOpenPRWithPrefix/closeSupersededPRs all
 // share listOpenPRRefs, so fixing pagination there fixes it everywhere.
 func TestListOpenPRRefsFetchesAllPages(t *testing.T) {
-	page1 := make([]map[string]any, 100)
+	page1 := make([]openPRRef, 100)
 	for i := range page1 {
-		page1[i] = map[string]any{"number": i + 1, "head": map[string]string{"ref": fmt.Sprintf("mise-bump/tool%d-1.0.0", i)}}
+		page1[i] = openPRRef{Number: i + 1, Head: prHeadRef{Ref: fmt.Sprintf("mise-bump/tool%d-1.0.0", i)}}
 	}
-	page2 := []map[string]any{
-		{"number": 101, "head": map[string]string{"ref": "mise-bump/last-1.0.0"}},
+	page2 := []openPRRef{
+		{Number: 101, Head: prHeadRef{Ref: "mise-bump/last-1.0.0"}},
 	}
 
 	var gotPages []string
@@ -463,22 +520,22 @@ func TestHasOpenPRWithPrefix(t *testing.T) {
 	tests := []struct {
 		name   string
 		prefix string
-		prs    []map[string]any
+		prs    []openPRRef
 		want   bool
 	}{
 		{
 			name:   "finds a PR whose branch starts with prefix",
 			prefix: "mise-bump/go_",
-			prs: []map[string]any{
-				{"number": 1, "head": map[string]string{"ref": "mise-bump/go_1.26.1"}},
+			prs: []openPRRef{
+				{Number: 1, Head: prHeadRef{Ref: "mise-bump/go_1.26.1"}},
 			},
 			want: true,
 		},
 		{
 			name:   "does not match a different tool sharing a name prefix",
 			prefix: "mise-bump/go_",
-			prs: []map[string]any{
-				{"number": 1, "head": map[string]string{"ref": "mise-bump/go-github.com-matryer-moq_v0.7.1"}},
+			prs: []openPRRef{
+				{Number: 1, Head: prHeadRef{Ref: "mise-bump/go-github.com-matryer-moq_v0.7.1"}},
 			},
 			want: false,
 		},
