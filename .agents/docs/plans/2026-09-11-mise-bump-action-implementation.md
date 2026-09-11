@@ -2102,6 +2102,15 @@ v0.1.1でデモを実行したところ、moq(v0.6.0→v0.7.1のはず)が検出
 
 action.yml側の`pr-strategy` inputはGitHub Actions自体には選択肢を制限する仕組み(enum)が無く、あくまで文字列inputのまま。型としての保証はGoバイナリ内部(`config`→`grouping`)のみである点は変わらない。
 
+### Task 24(実施後の追補): リリースノートをConventional Commitsベースの自作生成に変更
+
+`gh release create --generate-notes`はマージされたPRを起点に集計するため、mainへの直pushが中心の本リポジトリでは実態を反映しなかった(`v0.1.2`はコミットが全て直pushだったため本文が空、`v0.2.0`はデモ用bot PRだけを拾い`New Contributors: @github-actions[bot]`という無意味な内容になっていた)。
+
+- `.github/workflows/release.yml`の`actions/checkout`に`fetch-depth: 0`を追加(tag履歴を含む全履歴が必要なため)。
+- `--generate-notes`をやめ、直前のtagから現tagまでの`git log`をConventional Commitsのprefix(`feat`/`fix`/`docs`/`test`/`refactor`/`chore`)で分類したMarkdownを生成し、`gh release create --notes-file`で渡す方式に変更。
+- 初回リリース(前tag無し)の場合は全履歴を対象にする。
+- ローカルで実際のコミット履歴に対して同ロジックを再現し、Fixes/Docs/Choresに正しく分類されることを確認した。
+
 ## Self-Review 結果
 
 - **Spec coverage:** 設計docの「処理フロー」「PRフォーマット」「設定インターフェース」「v0スコープと配布」は Task 2〜10 で実装対象になっている。「エラーハンドリング」は実データ調査の結果、mise自体が失敗ツールを黙って除外することが判明したため、Task 2のRunの説明とGlobal Constraintsに反映済み。「テスト方針」(fixtureベースのユニットテスト、GitHub APIはモック/フェイクサーバ)はTask 2・7・8で満たしている。

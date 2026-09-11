@@ -13,6 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `--generate-notes`(PRベースの集計)は、mainへ直pushする本リポジトリの
+          # 運用だと空またはbotのPRしか拾わず実態を反映しない(ADR未記載、plan文書の
+          # Task 24追補参照)。git logからConventional Commitsのprefixで分類した
+          # ノートを自作するため、tag履歴を含む全履歴が必要。
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -21,7 +27,34 @@ jobs:
       - name: Build linux/amd64 binary
         run: GOOS=linux GOARCH=amd64 go build -o mise-bump-action_linux_amd64 ./cmd/mise-bump-action
 
+      - name: Generate release notes from Conventional Commits
+        id: notes
+        run: |
+          prev_tag=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -n "$prev_tag" ]; then
+            range="${prev_tag}..${GITHUB_REF_NAME}"
+          else
+            range="${GITHUB_REF_NAME}"
+          fi
+
+          {
+            echo "## Changes"
+            for entry in "feat:Features" "fix:Fixes" "docs:Docs" "test:Tests" "refactor:Refactoring" "chore:Chores"; do
+              prefix="${entry%%:*}"
+              label="${entry#*:}"
+              commits=$(git log "$range" --no-merges --pretty=format:"- %s (%h)" --grep "^${prefix}(\(.*\))?:" -E)
+              if [ -n "$commits" ]; then
+                printf '\n### %s\n%s\n' "$label" "$commits"
+              fi
+            done
+            if [ -n "$prev_tag" ]; then
+              printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$prev_tag" "$GITHUB_REF_NAME"
+            fi
+          } > release-notes.md
+
+          cat release-notes.md
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 --generate-notes
+        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 --notes-file release-notes.md
