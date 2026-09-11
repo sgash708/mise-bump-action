@@ -36,7 +36,7 @@ runs:
           exit 1
         fi
 
-        gh release download v0.2.4 \
+        gh release download v0.2.5 \
           --repo sgash708/mise-bump-action \
           --pattern 'mise-bump-action_linux_amd64' \
           --pattern 'checksums.txt' \
