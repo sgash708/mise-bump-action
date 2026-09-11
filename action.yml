@@ -22,17 +22,26 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Download mise-bump-action binary
+    - name: Download and verify mise-bump-action binary
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        if [ "$(uname -m)" != "x86_64" ]; then
+          echo "::error::mise-bump-action v0 only ships a linux/amd64 binary; this runner is $(uname -m)." >&2
+          exit 1
+        fi
+
         gh release download v0.2.3 \
           --repo sgash708/mise-bump-action \
           --pattern 'mise-bump-action_linux_amd64' \
-          --output "${{ github.action_path }}/mise-bump-action" \
+          --pattern 'checksums.txt' \
+          --dir "${{ github.action_path }}" \
           --clobber
-        chmod +x "${{ github.action_path }}/mise-bump-action"
+
+        cd "${{ github.action_path }}"
+        sha256sum -c checksums.txt
+        chmod +x mise-bump-action_linux_amd64
 
     - name: Run mise-bump-action
       shell: bash
@@ -42,4 +51,8 @@ runs:
         INPUT_LABELS: ${{ inputs.labels }}
         INPUT_BASE_BRANCH: ${{ inputs.base-branch }}
         GITHUB_TOKEN: ${{ github.token }}
-      run: "${{ github.action_path }}/mise-bump-action"
+      run: "${{ github.action_path }}/mise-bump-action_linux_amd64"
+
+branding:
+  icon: "refresh-cw"
+  color: "blue"

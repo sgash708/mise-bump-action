@@ -3,7 +3,10 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      # Exact semver only (vX.Y.Z) — a floating major tag like "v0"/"v1"
+      # (used so consumers can pin `@v1` and follow patch releases) must
+      # never itself trigger a new release build.
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: write
@@ -25,12 +28,22 @@ jobs:
           go-version-file: go.mod
 
       - name: Build linux/amd64 binary
-        run: GOOS=linux GOARCH=amd64 go build -o mise-bump-action_linux_amd64 ./cmd/mise-bump-action
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        # -trimpath drops the builder's absolute filesystem paths from the
+        # binary so two builds of the same commit produce identical output
+        # regardless of where they were built.
+        run: go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" -o mise-bump-action_linux_amd64 ./cmd/mise-bump-action
+
+      - name: Generate checksums
+        run: sha256sum mise-bump-action_linux_amd64 > checksums.txt
 
       - name: Generate release notes from Conventional Commits
         id: notes
         run: |
-          prev_tag=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          prev_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           if [ -n "$prev_tag" ]; then
             range="${prev_tag}..${GITHUB_REF_NAME}"
           else
@@ -39,10 +52,12 @@ jobs:
 
           {
             echo "## Changes"
-            for entry in "feat:Features" "fix:Fixes" "docs:Docs" "test:Tests" "refactor:Refactoring" "chore:Chores"; do
+            for entry in "feat:Features" "fix:Fixes" "perf:Performance" "docs:Docs" "test:Tests" "refactor:Refactoring" "build:Build" "ci:CI" "revert:Reverts" "chore:Chores"; do
               prefix="${entry%%:*}"
               label="${entry#*:}"
-              commits=$(git log "$range" --no-merges --pretty=format:"- %s (%h)" --grep "^${prefix}(\(.*\))?:" -E)
+              # "!" marks a breaking change (e.g. "feat!:" or "fix(scope)!:"),
+              # which must still classify under its base type.
+              commits=$(git log "$range" --no-merges --pretty=format:"- %s (%h)" --grep "^${prefix}(\(.*\))?!?:" -E)
               if [ -n "$commits" ]; then
                 printf '\n### %s\n%s\n' "$label" "$commits"
               fi
@@ -57,4 +72,4 @@ jobs:
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 --title "${GITHUB_REF_NAME}" --notes-file release-notes.md
+        run: gh release create "${GITHUB_REF_NAME}" mise-bump-action_linux_amd64 checksums.txt --title "${GITHUB_REF_NAME}" --notes-file release-notes.md

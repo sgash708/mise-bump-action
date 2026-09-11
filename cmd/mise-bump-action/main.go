@@ -19,7 +19,13 @@ import (
 // indefinitely instead of failing with a clear error.
 const httpTimeout = 30 * time.Second
 
+// version is stamped at build time via -ldflags "-X main.version=...";
+// release.yml sets it to the release tag. It stays "dev" for local builds.
+var version = "dev"
+
 func main() {
+	fmt.Fprintf(os.Stderr, "mise-bump-action %s\n", version)
+
 	cfg, err := config.FromEnv(os.Getenv)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, fmt.Errorf("failed to load configuration: %w", err))
