@@ -7,43 +7,34 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sgash708/mise-bump-action/internal/config"
+	"github.com/sgash708/mise-bump-action/internal/grouping"
 	"github.com/sgash708/mise-bump-action/internal/outdated"
 	"github.com/sgash708/mise-bump-action/internal/runner"
 )
 
-func fakeEnv(values map[string]string) func(string) string {
-	return func(key string) string { return values[key] }
-}
-
 func TestRun(t *testing.T) {
-	validEnv := map[string]string{
-		"GITHUB_TOKEN":      "tok",
-		"GITHUB_REPOSITORY": "sgash708/example",
-		"GITHUB_REF_NAME":   "main",
+	validCfg := config.Config{
+		MiseConfigPaths: []string{"mise.toml"},
+		PRStrategy:      grouping.PerTool,
+		GitHubToken:     "tok",
+		Repository:      "sgash708/example",
+		BaseBranch:      "main",
 	}
 
 	tests := []struct {
-		name              string
-		env               map[string]string
-		lookup            lookupFunc
-		gh                runner.GitHub
-		wantErr           bool
-		wantErrSubstr     string
-		wantStderrSubstr  string
-		lookupMustNotCall bool
+		name             string
+		cfg              config.Config
+		lookup           lookupFunc
+		gh               runner.GitHub
+		wantErr          bool
+		wantErrSubstr    string
+		wantStderrSubstr string
 	}{
 		{
-			name:              "returns error when config invalid",
-			env:               nil,
-			lookup:            func(ctx context.Context, repoRoot, configDir string) ([]outdated.Entry, error) { return nil, nil },
-			gh:                &runner.GitHubMock{},
-			wantErr:           true,
-			lookupMustNotCall: true,
-		},
-		{
 			name: "reports no outdated tools without calling github",
-			env:  validEnv,
-			lookup: func(ctx context.Context, repoRoot, configDir string) ([]outdated.Entry, error) {
+			cfg:  validCfg,
+			lookup: func(ctx context.Context, repoRoot, configPath string) ([]outdated.Entry, error) {
 				return nil, nil
 			},
 			gh: &runner.GitHubMock{
@@ -56,8 +47,8 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name: "opens PRs for outdated tools",
-			env:  validEnv,
-			lookup: func(ctx context.Context, repoRoot, configDir string) ([]outdated.Entry, error) {
+			cfg:  validCfg,
+			lookup: func(ctx context.Context, repoRoot, configPath string) ([]outdated.Entry, error) {
 				return []outdated.Entry{{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"}}, nil
 			},
 			gh: &runner.GitHubMock{
@@ -72,8 +63,8 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name: "propagates lookup error",
-			env:  validEnv,
-			lookup: func(ctx context.Context, repoRoot, configDir string) ([]outdated.Entry, error) {
+			cfg:  validCfg,
+			lookup: func(ctx context.Context, repoRoot, configPath string) ([]outdated.Entry, error) {
 				return nil, errors.New("mise not trusted")
 			},
 			gh:            &runner.GitHubMock{},
@@ -85,15 +76,8 @@ func TestRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			lookup := tt.lookup
-			if tt.lookupMustNotCall {
-				lookup = func(ctx context.Context, repoRoot, configDir string) ([]outdated.Entry, error) {
-					t.Fatal("lookup should not be called when config is invalid")
-					return nil, nil
-				}
-			}
 
-			err := run(context.Background(), fakeEnv(tt.env), &stderr, lookup, tt.gh)
+			err := run(context.Background(), tt.cfg, &stderr, tt.lookup, tt.gh)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got nil")

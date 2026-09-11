@@ -15,16 +15,19 @@ func TestParse(t *testing.T) {
 		name        string
 		fixtureFile string
 		inlineJSON  string
+		configPath  string
 		want        []Entry
 	}{
 		{
 			name:        "skips tools already up to date",
 			fixtureFile: "up_to_date.json",
+			configPath:  "/repo/mise.toml",
 			want:        nil,
 		},
 		{
 			name:        "detects outdated and normalizes rel path",
 			fixtureFile: "with_outdated.json",
+			configPath:  "/repo/mise.toml",
 			want:        []Entry{{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"}},
 		},
 		{
@@ -42,7 +45,56 @@ func TestParse(t *testing.T) {
 					"source": { "type": "mise.toml", "path": "/repo/mise.toml" }
 				}
 			}`,
-			want: nil,
+			configPath: "/repo/mise.toml",
+			want:       nil,
+		},
+		{
+			// A fuzzy pin like "2.12" only constrains to the 2.12.x family. mise's
+			// "bump" field respects that (next in-family version), while "latest"
+			// is the unconstrained newest release. Using "latest" here would
+			// needlessly narrow the user's fuzzy pin into an exact one.
+			name: "uses bump instead of latest for a fuzzy pin",
+			inlineJSON: `{
+				"node": {
+					"name": "node",
+					"requested": "2.12",
+					"current": "2.12.5",
+					"bump": "2.13",
+					"latest": "2.13.2",
+					"source": { "type": "mise.toml", "path": "/repo/mise.toml" }
+				}
+			}`,
+			configPath: "/repo/mise.toml",
+			want:       []Entry{{Name: "node", Requested: "2.12", Latest: "2.13", RelPath: "mise.toml"}},
+		},
+		{
+			// mise merges mise.toml files from parent directories and the global
+			// config (~/.config/mise/config.toml) into the same `mise outdated`
+			// result. Only entries whose source matches the exact file we were
+			// asked to check should be reported; everything else must be
+			// filtered out, or a single mise-config-path input would silently
+			// also bump unrelated tools declared elsewhere.
+			name: "excludes entries from a merged parent or global config",
+			inlineJSON: `{
+				"go": {
+					"name": "go",
+					"requested": "1.26.1",
+					"current": "1.26.1",
+					"bump": "1.27.0",
+					"latest": "1.27.0",
+					"source": { "type": "mise.toml", "path": "/home/user/.config/mise/config.toml" }
+				},
+				"node": {
+					"name": "node",
+					"requested": "24.12.0",
+					"current": "24.12.0",
+					"bump": "24.13.0",
+					"latest": "24.13.0",
+					"source": { "type": "mise.toml", "path": "/repo/mise.toml" }
+				}
+			}`,
+			configPath: "/repo/mise.toml",
+			want:       []Entry{{Name: "node", Requested: "24.12.0", Latest: "24.13.0", RelPath: "mise.toml"}},
 		},
 	}
 
@@ -59,7 +111,7 @@ func TestParse(t *testing.T) {
 				data = []byte(tt.inlineJSON)
 			}
 
-			got, err := Parse(data, "/repo")
+			got, err := Parse(data, "/repo", tt.configPath)
 			if err != nil {
 				t.Fatalf("Parse returned error: %v", err)
 			}
@@ -128,6 +180,36 @@ EOF
 			wantEntries: []Entry{{Name: "go", Requested: "1.26.1", Latest: "1.27.0", RelPath: "mise.toml"}},
 		},
 		{
+			// A tool declared in a merged parent/global config must not leak
+			// into the result for this specific mise.toml.
+			name: "excludes merged config entries not matching the target file",
+			script: func(repoRoot string) string {
+				return fmt.Sprintf(`#!/bin/sh
+cat <<'EOF'
+{
+  "go": {
+    "name": "go",
+    "requested": "1.26.1",
+    "current": "1.26.1",
+    "bump": "1.27.0",
+    "latest": "1.27.0",
+    "source": { "type": "mise.toml", "path": "/somewhere/else/mise.toml" }
+  },
+  "node": {
+    "name": "node",
+    "requested": "24.12.0",
+    "current": "24.12.0",
+    "bump": "24.13.0",
+    "latest": "24.13.0",
+    "source": { "type": "mise.toml", "path": "%s/mise.toml" }
+  }
+}
+EOF
+`, repoRoot)
+			},
+			wantEntries: []Entry{{Name: "node", Requested: "24.12.0", Latest: "24.13.0", RelPath: "mise.toml"}},
+		},
+		{
 			name: "wraps command failure with stderr",
 			script: func(repoRoot string) string {
 				return `#!/bin/sh
@@ -145,7 +227,7 @@ exit 1
 			repoRoot := t.TempDir()
 			installFakeMise(t, tt.script(repoRoot))
 
-			entries, err := Run(context.Background(), repoRoot, ".")
+			entries, err := Run(context.Background(), repoRoot, "mise.toml")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got nil")
