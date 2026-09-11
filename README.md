@@ -156,11 +156,12 @@ Trade-offs from favoring a light setup over Renovate/Dependabot's full feature s
 ├── README.md              # This file
 ├── examples/              # Configuration patterns (single-tool/ is a live demo, others are illustrative)
 └── .agents/
-    └── docs/
-        ├── README.md      # Documentation index
-        ├── adr/           # Architecture decision records
-        ├── specs/         # Design docs
-        └── plans/         # Implementation plans
+    ├── docs/
+    │   ├── README.md      # Documentation index
+    │   ├── adr/           # Architecture decision records
+    │   ├── specs/         # Design docs
+    │   └── plans/         # Implementation plans
+    └── agents/            # Subagent definitions (symlinked from .claude/agents/)
 ```
 
 ## License

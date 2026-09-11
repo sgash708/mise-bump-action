@@ -1,6 +1,7 @@
 .claude/*
 !.claude/docs
 !.claude/skills
+!.claude/agents
 
 # Beads / Dolt files (added by bd init)
 .dolt/

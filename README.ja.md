@@ -195,11 +195,12 @@ fingerprintを持たない旧形式では、異なるツール名が同じブラ
 ├── README.ja.md           # このファイル
 ├── examples/              # 設定パターン集(single-tool/はライブデモ、他は非実行)
 └── .agents/
-    └── docs/
-        ├── README.md      # ドキュメント索引
-        ├── adr/           # アーキテクチャ決定記録
-        ├── specs/         # 設計ドキュメント
-        └── plans/         # 実装計画
+    ├── docs/
+    │   ├── README.md      # ドキュメント索引
+    │   ├── adr/           # アーキテクチャ決定記録
+    │   ├── specs/         # 設計ドキュメント
+    │   └── plans/         # 実装計画
+    └── agents/            # サブエージェント定義(.claude/agents/からシンボリックリンク)
 ```
 
 ## ライセンス
