@@ -1,7 +1,7 @@
 [tools]
 "aqua:golangci/golangci-lint" = "2.15.0"
 "aqua:rhysd/actionlint" = "1.7.12"
-"go:github.com/matryer/moq" = "v0.7.1"
+"go:github.com/matryer/moq" = "v0.8.1"
 
 [tasks.build]
 description = "Build the mise-bump-action binary"
