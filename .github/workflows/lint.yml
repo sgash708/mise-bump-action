@@ -36,7 +36,7 @@ jobs:
           fail_level: error
           filter_mode: nofilter
 
-      - uses: reviewdog/action-yamllint@3224b47de22a2fd9c8c0fbc120e6d0049d1f5060 # v1
+      - uses: reviewdog/action-yamllint@072d1a6ca6f5a03de10f492f6119fcbc8d47302b # v1
         with:
           reporter: github-check
           fail_level: error
